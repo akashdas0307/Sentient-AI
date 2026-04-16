@@ -106,7 +106,7 @@ Use this to track MVS implementation:
 - [x] Configuration loading
 - [x] Lifecycle orchestrator
 - [x] Health pulse network (Layer 1)
-- [ ] Health innate response (Layer 2)
+- [~] Health innate response (Layer 2)
 
 ### Thalamus
 - [x] Standard envelope
@@ -114,43 +114,43 @@ Use this to track MVS implementation:
 - [x] Chat input plugin
 - [x] Heuristic engine (Layer 1)
 - [ ] Local LLM classifier (Layer 2)
-- [x] Adaptive batching window
-- [x] Attention summary subscriber
+- [~] Adaptive batching window
+- [~] Attention summary subscriber
 
 ### Prajñā pipeline
 - [x] Checkpost scaffold
-- [ ] Checkpost with entity recognition
+- [~] Checkpost with entity recognition
 - [x] Queue Zone scaffold
-- [ ] Queue Zone with priority logic
+- [~] Queue Zone with priority logic
 - [x] TLP scaffold
-- [ ] TLP with memory retrieval + significance weighting
+- [~] TLP with memory retrieval + significance weighting
 - [x] Cognitive Core scaffold
-- [ ] Cognitive Core with inner monologue prompts
+- [~] Cognitive Core with inner monologue prompts
 - [x] World Model scaffold
-- [ ] World Model with 5-dimension review
+- [~] World Model with 5-dimension review
 - [x] Memory Architecture scaffold
-- [ ] Memory Gatekeeper logic
-- [ ] Multi-path retrieval
+- [x] Memory Gatekeeper logic
+- [~] Multi-path retrieval
 - [x] Persona Manager scaffold
-- [ ] Identity block assembly
+- [~] Identity block assembly
 
 ### Brainstem
 - [x] Plugin base class
-- [x] Chat output plugin
+- [~] Chat output plugin
 - [x] Action translator scaffold
-- [ ] Safety gate logic
+- [~] Safety gate logic
 
 ### Sleep system
 - [x] Sleep scheduler scaffold
-- [ ] Four-stage state machine
-- [ ] Memory consolidation orchestrator
-- [ ] Wake-up handoff package
+- [~] Four-stage state machine
+- [~] Memory consolidation orchestrator
+- [~] Wake-up handoff package
 
 ### API
 - [x] FastAPI server
-- [x] WebSocket for chat
-- [x] WebSocket for dashboard streaming
-- [x] REST endpoints for health
+- [~] WebSocket for chat
+- [~] WebSocket for dashboard streaming
+- [~] REST endpoints for health
 
 ### Frontend (Phase 2)
 - [ ] React + TypeScript setup
