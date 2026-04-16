@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from sentient.core.envelope import Envelope, SourceType
+from sentient.core.envelope import Envelope
 from sentient.core.event_bus import EventBus, get_event_bus
 from sentient.core.inference_gateway import InferenceGateway, InferenceRequest
 from sentient.core.module_interface import HealthPulse, ModuleInterface, ModuleStatus

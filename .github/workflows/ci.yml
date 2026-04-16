@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "auto/*"
+      - "dev/*"
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: bash scripts/setup-dev.sh
+
+      - name: Run tests with coverage
+        run: |
+          source .venv/bin/activate
+          pytest tests/ -v --cov=src/sentient --cov-report=term-missing
+
+      - name: Lint with ruff
+        run: |
+          source .venv/bin/activate
+          ruff check . --output-format=github

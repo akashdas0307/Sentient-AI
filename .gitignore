@@ -17,6 +17,14 @@ htmlcov/
 # Environment
 .env
 
+# Per-session working files (not committed)
+HANDOFF.md
+SESSION.md
+.claude-session/
+
+# Database files
+*.db
+
 # Data (runtime)
 data/
 !data/.gitkeep

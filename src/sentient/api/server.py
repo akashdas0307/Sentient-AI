@@ -22,10 +22,7 @@ from typing import Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-
 from sentient.core.event_bus import EventBus, get_event_bus
-from sentient.core.module_interface import ModuleStatus
 
 logger = logging.getLogger(__name__)
 

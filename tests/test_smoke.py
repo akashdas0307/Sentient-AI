@@ -1,3 +1,4 @@
+# ruff: noqa: F401
 """Smoke tests — verify the system scaffolding works.
 
 These tests verify:
