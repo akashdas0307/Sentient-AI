@@ -13,8 +13,6 @@ import asyncio
 import pytest
 
 from sentient.core.envelope import Envelope, Priority, SourceType, TrustLevel
-from sentient.core.event_bus import EventBus
-from sentient.core.inference_gateway import InferenceRequest, InferenceResponse
 from sentient.core.lifecycle import LifecycleManager
 from sentient.thalamus.gateway import Thalamus
 from sentient.thalamus.plugins.chat_input import ChatInputPlugin
