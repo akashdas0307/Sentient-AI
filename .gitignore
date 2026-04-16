@@ -46,3 +46,5 @@ Thumbs.db
 gui/node_modules/
 gui/dist/
 gui/build/
+
+.omc/

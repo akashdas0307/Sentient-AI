@@ -99,13 +99,25 @@ A change is "done" only when ALL of these are true:
 | Kimi-K2.5 | kimi-k2.5 | Writer, Explorer | Long-context work, documentation, cross-module analysis |
 | MiniMax-M2.7 | minimax-m2.7 | Executor, Test Engineer | Routine edits, file creation, linting, test scaffolding |
 
-### Orchestration Rules
-
-- **Main session dispatches** — the orchestrator delegates, never implements directly
-- **Explore reads code** — exploration agents never write; they report findings
-- **Executor changes code** — execution agents make the edits
-- **Verifier checks** — verification agents confirm deliverables match specs
-- **Architect approves** — architectural or security changes require architect sign-off
+### ORCHESTRATION — HARD RULES (RED gates)
+1. The main Claude Code session MUST NOT edit production code (src/**) or test code (tests/**).
+   All edits flow through dispatched agents via /team, /team ralph, or direct agent calls.
+   If the main session edits code, this is a RED gate violation; stop and restart the phase.
+2. Plans are files, not context. Every phase starts with /ralplan --deliberate writing to
+   .omc/plans/ralplan-phase-N.md. Agents read the plan file; they do not receive the plan
+   in their dispatch prompt.
+3. Execution uses /team ralph N:executor with N ≤ 3 for parallel independent work, or
+   /team ralph 1:executor for sequential work. team-fix handles test failures; the main
+   session does not.
+4. Every phase includes a documentation audit deliverable:
+   a. explore reads SETUP.md, README.md, docs/, module READMEs against current code
+   b. writer regenerates stale sections
+   c. document-specialist verifies cross-references
+   Documentation staleness is a phase-blocking gate, equivalent to failing CI.
+5. notepad_write_priority holds: current phase number, current branch, active RED gates,
+   InferenceGateway model label mapping (once fixed). Kept under 500 chars.
+6. notepad_write_working is updated at each deliverable boundary by the orchestrator,
+   not by agents.
 
 ### Branch Rules
 
