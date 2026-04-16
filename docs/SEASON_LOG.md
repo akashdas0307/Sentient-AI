@@ -28,4 +28,12 @@ Phase 3.5 is ongoing infrastructure work to organize documentation and prepare f
 
 ---
 
+---
+
+## Phase 4a: Substrate Coverage
+
+Phase 4a delivered comprehensive test coverage for the memory and health substrate modules: 28 unit tests for memory/architecture.py achieving 84% coverage (up from 15%), 41 unit tests for health/pulse_network.py and registry.py achieving 99-100% coverage (up from 26%), and 35 unit tests for health/innate_response.py achieving 98% coverage (up from 25%). Total project coverage rose from 56% to 83% with 202 tests passing (up from 98). The wetware smoke test was executed against the local Ollama instance but failed because the InferenceGateway does not map abstract model labels ("cognitive-core", "world-model") to the actual Ollama model names ("glm-5.1:cloud", "minimax-m2.7:cloud") — this is documented as a HANDOFF item for Phase 4b configuration work. Phase 3.5 was successfully merged to main via GitHub PR #2 and tagged v0.3.5-infrastructure.
+
+---
+
 *Last updated: 2026-04-16*
