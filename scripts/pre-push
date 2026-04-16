@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# pre-push hook — runs lint and unit/integration tests before push
+# Install: cp scripts/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+
+set -euo pipefail
+
+echo "Running pre-push checks..."
+
+# Lint
+ruff check src/ tests/ --quiet
+echo "ruff: OK"
+
+# Fast unit + integration tests (skip wetware)
+pytest -x --ff -q tests/unit tests/integration --ignore=tests/wetware 2>/dev/null
+echo "pytest: OK"
+
+echo "Pre-push checks passed. Pushing..."
