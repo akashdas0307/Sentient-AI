@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentient-framework"
+version = "0.1.0-mvs"
+description = "A continuously-conscious digital entity, not a chatbot."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    {name = "Akash"}
+]
+
+dependencies = [
+    # Core async + scheduling
+    "apscheduler>=3.10.0",
+
+    # Configuration
+    "pydantic>=2.5.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+
+    # LLM routing
+    "litellm>=1.40.0",
+
+    # Web API
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "websockets>=12.0",
+
+    # Memory
+    "chromadb>=0.4.0",
+    "sentence-transformers>=2.5.0",
+
+    # Logging / utilities
+    "structlog>=24.0.0",
+    "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.3.0",
+    "mypy>=1.9.0",
+]
+
+[project.scripts]
+sentient = "sentient.main:run"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

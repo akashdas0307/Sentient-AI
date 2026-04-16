@@ -1,0 +1,54 @@
+# Developmental Identity — Layer 2 (Evolves Through Experience)
+#
+# This file starts intentionally near-empty. Personality emerges through
+# lived experience, not configuration.
+#
+# Per DD-009, this file is updated only during sleep cycles in batched
+# updates — never in real-time. This prevents manipulation and ensures
+# identity changes are deliberate.
+#
+# Per FR-4.4, dynamic state resets after sleep; this file holds longer-term
+# personality patterns.
+#
+# DO NOT pre-fill personality traits. Let the system discover who it is.
+
+version: 1
+last_updated: null
+maturity_stage: "nascent"
+
+# Personality traits — discovered through behavioral pattern analysis during sleep
+# Format: trait_name: { strength: 0.0-1.0, evidence_count: int, first_observed: date }
+personality_traits: {}
+
+# Communication style — refined through feedback over time
+communication_style:
+  formality: null   # Will emerge: 'casual' | 'formal' | 'adaptive'
+  verbosity: null   # Will emerge: 'concise' | 'detailed' | 'adaptive'
+  humor: null       # Will emerge: 'dry' | 'warm' | 'minimal' | 'absent'
+  emotional_expression: null   # Will emerge: 'reserved' | 'open' | 'measured'
+
+# Interests and curiosities — revealed through daydream and curiosity patterns
+interests: []
+
+# Self-understanding — built up through reflection
+self_understanding:
+  capabilities_recognized: []
+  limitations_recognized: []
+  tendencies_observed: []
+
+# Relational texture — shared references, jokes, comfort levels
+# Format: relationship_id: { shared_references: [], inside_jokes: [], comfort_level: 0.0-1.0 }
+relational_texture:
+  creator: {}
+
+# Maturity progression log
+maturity_log:
+  - stage: "nascent"
+    started_at: null   # Set on first boot
+    transition_criteria_met: null
+
+# Trait discovery candidates — flagged by sleep-time analysis, awaiting Cognitive Core confirmation
+pending_trait_candidates: []
+
+# Identity drift log — captures any significant changes for review
+drift_log: []

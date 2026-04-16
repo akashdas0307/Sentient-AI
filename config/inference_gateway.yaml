@@ -1,0 +1,124 @@
+# Inference Gateway Configuration
+#
+# Defines LLM endpoints and the fallback chain for each module's inference needs.
+# Per DD-002, the Cognitive Core and World Model MUST use different models.
+# Per DD-018, modules specify capability level needed; gateway routes to best available.
+
+models:
+  # === Cognitive Core (frontier reasoning) ===
+  cognitive-core:
+    primary:
+      provider: "anthropic"
+      model: "claude-opus-4-7"
+      max_tokens: 4096
+      temperature: 0.7
+    fallback:
+      - provider: "ollama"
+        model: "qwen2.5:7b"
+        base_url: "http://localhost:11434"
+        max_tokens: 2048
+        temperature: 0.7
+
+  # === World Model (different LLM than Cognitive Core) ===
+  world-model:
+    primary:
+      provider: "anthropic"
+      model: "claude-sonnet-4-6"   # Different from Cognitive Core
+      max_tokens: 2048
+      temperature: 0.3   # More deterministic for review
+    fallback:
+      - provider: "ollama"
+        model: "llama3.2:3b"   # Different fallback than Cognitive Core
+        base_url: "http://localhost:11434"
+        max_tokens: 1024
+        temperature: 0.3
+
+  # === Thalamus Layer 2 Classifier (lightweight, frequent) ===
+  thalamus-classifier:
+    primary:
+      provider: "ollama"
+      model: "llama3.2:3b"
+      base_url: "http://localhost:11434"
+      max_tokens: 512
+      temperature: 0.2
+    fallback:
+      - provider: "anthropic"
+        model: "claude-haiku-4-5-20251001"
+        max_tokens: 512
+        temperature: 0.2
+
+  # === Checkpost (entity recognition, intent classification) ===
+  checkpost:
+    primary:
+      provider: "ollama"
+      model: "llama3.2:3b"
+      base_url: "http://localhost:11434"
+      max_tokens: 1024
+      temperature: 0.3
+    fallback:
+      - provider: "anthropic"
+        model: "claude-haiku-4-5-20251001"
+        max_tokens: 1024
+        temperature: 0.3
+
+  # === Queue Zone assessment (priority + relevance) ===
+  queue-zone:
+    primary:
+      provider: "ollama"
+      model: "llama3.2:3b"
+      base_url: "http://localhost:11434"
+      max_tokens: 512
+      temperature: 0.2
+    fallback:
+      - provider: "anthropic"
+        model: "claude-haiku-4-5-20251001"
+        max_tokens: 512
+        temperature: 0.2
+
+  # === Temporal-Limbic-Processor (context assembly, significance) ===
+  tlp:
+    primary:
+      provider: "anthropic"
+      model: "claude-sonnet-4-6"
+      max_tokens: 2048
+      temperature: 0.4
+    fallback:
+      - provider: "ollama"
+        model: "qwen2.5:7b"
+        base_url: "http://localhost:11434"
+        max_tokens: 2048
+        temperature: 0.4
+
+  # === Memory consolidation during sleep ===
+  consolidation:
+    primary:
+      provider: "anthropic"
+      model: "claude-haiku-4-5-20251001"   # Cheap; large volume
+      max_tokens: 1024
+      temperature: 0.3
+    fallback:
+      - provider: "ollama"
+        model: "qwen2.5:7b"
+        base_url: "http://localhost:11434"
+        max_tokens: 1024
+        temperature: 0.3
+
+# Routing behavior
+routing:
+  # If primary fails, try fallback chain in order
+  fallback_on_error: true
+  # If primary times out after this, treat as failure and fall back
+  timeout_seconds: 60
+  # Track per-endpoint performance for adaptive routing
+  performance_tracking:
+    enabled: true
+    window_size_calls: 100
+    # If primary's success rate drops below this, prefer fallback
+    health_threshold: 0.7
+
+# Cost tracking (estimated)
+cost_tracking:
+  enabled: true
+  log_path: "./data/logs/cost.log"
+  # Alert if monthly cost exceeds this
+  monthly_alert_usd: 200

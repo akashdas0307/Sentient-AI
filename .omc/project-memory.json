@@ -1,0 +1,113 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1776344457646,
+  "projectRoot": "/home/akashdas/Desktop/Sentient-AI",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "pyproject.toml"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "fastapi",
+        "version": null,
+        "category": "backend"
+      },
+      {
+        "name": "pytest",
+        "version": null,
+        "category": "testing"
+      }
+    ],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": "pytest",
+    "lintCommand": "ruff check",
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "src",
+      "tests"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "config": {
+      "path": "config",
+      "purpose": "Configuration files",
+      "fileCount": 2,
+      "lastAccessed": 1776344457642,
+      "keyFiles": [
+        "inference_gateway.yaml",
+        "system.yaml"
+      ]
+    },
+    "data": {
+      "path": "data",
+      "purpose": "Data files",
+      "fileCount": 1,
+      "lastAccessed": 1776344457644,
+      "keyFiles": []
+    },
+    "doc": {
+      "path": "doc",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1776344457644,
+      "keyFiles": [
+        "ARCHITECTURE.md",
+        "CONVERSATION_SUMMARY.md",
+        "DESIGN_DECISIONS.md",
+        "PRD.md"
+      ]
+    },
+    "gui": {
+      "path": "gui",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1776344457644,
+      "keyFiles": [
+        "index.html"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 0,
+      "lastAccessed": 1776344457645,
+      "keyFiles": []
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 2,
+      "lastAccessed": 1776344457645,
+      "keyFiles": [
+        "__init__.py",
+        "test_smoke.py"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}
