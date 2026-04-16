@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# pre-push hook — blocks autonomous pushes to main/master
+#
+# Per CLAUDE.md approval ladder (RED tier):
+#   - No push to main or master is allowed from autonomous sessions.
+#   - Create a PR or push to a feature branch instead.
+#
+# Installation: git config core.hooksPath .githooks
+#
+# Git passes lines on stdin in the format:
+#   <local-sha> <remote-sha> <remote-ref>
+# One line per ref being pushed.
+
+while read -r local_sha remote_sha remote_ref; do
+    # Extract the branch name from the remote ref
+    branch_name="${remote_ref#refs/heads/}"
+
+    if [ "$branch_name" = "main" ] || [ "$branch_name" = "master" ]; then
+        echo ""
+        echo "============================================================"
+        echo "  BLOCKED: Autonomous push to ${branch_name} is forbidden."
+        echo "============================================================"
+        echo ""
+        echo "  Create a PR or push to a feature branch instead."
+        echo "  See CLAUDE.md (Approval Ladder — RED tier) and"
+        echo "  docs/DEV_WORKFLOW.md for the correct workflow."
+        echo ""
+        exit 1
+    fi
+done
+
+exit 0
