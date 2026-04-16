@@ -17,7 +17,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sentient.core.envelope import Envelope
-from sentient.core.module_interface import HealthPulse, ModuleInterface, ModuleStatus
+from sentient.core.module_interface import HealthPulse, ModuleInterface
 
 
 # Callback signature: plugin invokes this when it has an envelope to deliver
