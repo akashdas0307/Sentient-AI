@@ -132,7 +132,9 @@ Types: `feat`, `fix`, `chore`, `test`, `docs`, `refactor`
 
 - Do NOT install system-wide packages or modify `pyproject.toml` without approval (YELLOW gate)
 - If a dependency is missing, list it in the PHASE_1_REPORT.md under "Questions for the architect"
-- For local testing, create a venv: `python3.12 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`
+- For local testing, use the setup script: `bash scripts/setup-dev.sh`
+- Or manually: `python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`
+- The project version is `0.1.0` (PEP 440 compliant); the MVS phase is tracked in `[tool.sentient] phase = "mvs"`
 
 ## Testing
 
