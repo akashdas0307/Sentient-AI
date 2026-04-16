@@ -88,3 +88,59 @@ A change is "done" only when ALL of these are true:
 1. Write to `HANDOFF.md` with: blocked-on, what you tried, what you need, suggested options, files affected, how to resume
 2. Stop. Do not make the call yourself. Do not keep looping.
 3. The next session (or human) will read HANDOFF.md and resolve it.
+
+## Agent Orchestration
+
+### Agent Roster and Tier Mapping
+
+| Agent | Model | Role | Use For |
+|-------|-------|------|---------|
+| GLM-5.1 | glm-5.1:cloud | Architect, Planner, Critic | Reasoning-heavy tasks, multi-file edits, architectural decisions |
+| Kimi-K2.5 | kimi-k2.5 | Writer, Explorer | Long-context work, documentation, cross-module analysis |
+| MiniMax-M2.7 | minimax-m2.7 | Executor, Test Engineer | Routine edits, file creation, linting, test scaffolding |
+
+### Orchestration Rules
+
+- **Main session dispatches** — the orchestrator delegates, never implements directly
+- **Explore reads code** — exploration agents never write; they report findings
+- **Executor changes code** — execution agents make the edits
+- **Verifier checks** — verification agents confirm deliverables match specs
+- **Architect approves** — architectural or security changes require architect sign-off
+
+### Branch Rules
+
+- Phases branch from `main` after the previous phase is merged
+- If the previous phase hasn't merged yet, branch from the previous phase tip
+- Phase branch naming: `auto/phase-N-description`
+- Never branch from an unmerged phase
+
+### Merge Rules
+
+- Every phase merges to `main` on green CI + architect approval
+- Always use `--no-ff` for phase merges (preserves merge history)
+- Tag each merged phase: `v0.N-milestone`
+- Delete merged phase branches after merge
+
+### Test Tiers
+
+| Tier | Directory | Purpose | Runs By Default |
+|------|-----------|---------|-----------------|
+| Unit | `tests/unit/` | Fast, isolated, no I/O | Yes |
+| Integration | `tests/integration/` | Multi-module with mocks | Yes |
+| Wetware | `tests/wetware/` | Real LLM calls, requires Ollama | No (`pytest -m wetware`) |
+
+### Pre-Push Hook Contract
+
+Before every push, the pre-push hook runs:
+```bash
+ruff check src/ tests/ && pytest -x --ff -q tests/unit tests/integration
+```
+Install: `bash scripts/install_hooks.sh`
+
+### CI Feedback Contract
+
+After every push:
+1. `scripts/safe_push.sh` pushes and watches CI
+2. If `gh` CLI is available, it monitors the workflow run
+3. If CI fails, a debugger agent is dispatched to investigate
+4. Manual fallback: check GitHub Actions UI directly
