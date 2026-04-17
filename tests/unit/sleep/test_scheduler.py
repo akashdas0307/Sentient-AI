@@ -8,46 +8,7 @@ import pytest
 
 from sentient.sleep.scheduler import SleepScheduler, SleepStage
 
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def mock_event_bus():
-    bus = MagicMock()
-    bus.subscribe = AsyncMock()
-    bus.publish = AsyncMock()
-    return bus
-
-
-@pytest.fixture
-def mock_lifecycle():
-    lifecycle = MagicMock()
-    lifecycle.pause_for_sleep = AsyncMock()
-    lifecycle.resume_from_sleep = AsyncMock()
-    return lifecycle
-
-
-@pytest.fixture
-def mock_memory():
-    memory = MagicMock()
-    memory.count = AsyncMock(return_value=0)
-    return memory
-
-
-@pytest.fixture
-def base_config():
-    return {
-        "duration": {"min_hours": 6, "max_hours": 12},
-        "stages": {"settling_minutes": 5, "pre_wake_minutes": 5},
-        "default_circadian": {"sleep_hour": 22, "wake_hour": 7},
-    }
-
-
-@pytest.fixture
-def scheduler(mock_event_bus, mock_lifecycle, mock_memory, base_config):
-    return SleepScheduler(base_config, mock_lifecycle, mock_memory, mock_event_bus)
+# Fixtures are provided by tests/unit/sleep/conftest.py
 
 
 # ---------------------------------------------------------------------------
@@ -676,15 +637,12 @@ class TestScheduleLoop:
     async def test_skips_sleep_when_not_awake(self, scheduler, mock_event_bus):
         scheduler.current_stage = SleepStage.SETTLING
         with patch("sentient.sleep.scheduler.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-            # Cancel immediately so loop doesn't run forever
-            async def cancel_soon(*args, **kwargs):
-                scheduler._scheduler_task.cancel()
-
-            mock_sleep.side_effect = cancel_soon
+            # Cancel on first sleep call so the loop exits cleanly
+            mock_sleep.side_effect = asyncio.CancelledError()
             scheduler._scheduler_task = asyncio.create_task(scheduler._schedule_loop())
             try:
-                await scheduler._scheduler_task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(scheduler._scheduler_task, timeout=5.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
             # sleep should have been called (check runs every minute)
             assert mock_sleep.call_count >= 1
