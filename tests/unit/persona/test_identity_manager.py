@@ -710,6 +710,35 @@ async def test_shutdown_saves_developmental(
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
+async def test_blank_developmental_no_index_error(
+    tmp_identity_dir: dict[str, Path], fresh_bus: EventBus
+) -> None:
+    """When the developmental file does not exist, _blank_developmental() returns
+    an empty maturity_log which must not cause IndexError at line 110.
+
+    Regression test for the bug where:
+        self._developmental.get("maturity_log", [{}])[0].get("started_at")
+    raised IndexError because get() returns [] (the actual value) not [{}]
+    (the default) when the key is present but empty.
+    """
+    create_constitutional_yaml(tmp_identity_dir["constitutional"])
+    # Deliberately do NOT create developmental.yaml — missing file triggers
+    # _blank_developmental() which has maturity_log: []
+
+    manager = PersonaManager({"identity_files": {
+        "constitutional": str(tmp_identity_dir["constitutional"]),
+        "developmental": str(tmp_identity_dir["developmental"]),
+    }}, fresh_bus)
+    # Must not raise IndexError
+    await manager.initialize()
+
+    log = manager._developmental["maturity_log"]
+    assert len(log) == 1
+    assert log[0]["stage"] == "nascent"
+    assert isinstance(log[0]["started_at"], float)
+
+
+@pytest.mark.asyncio
 async def test_first_boot_creates_maturity_log_entry(
     tmp_identity_dir: dict[str, Path], fresh_bus: EventBus
 ) -> None:
