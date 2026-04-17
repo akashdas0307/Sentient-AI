@@ -7,9 +7,7 @@ run_forever, and run in isolation.
 """
 from __future__ import annotations
 
-import asyncio
 import os
-import signal
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
