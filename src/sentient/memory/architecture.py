@@ -523,6 +523,26 @@ class MemoryArchitecture(ModuleInterface):
         self._last_retrieval_latency_ms = (time.time() - start) * 1000
         return results[:limit]
 
+    async def retrieve_episodic(
+        self,
+        context: str,
+        k: int = 3,
+    ) -> list[dict[str, Any]]:
+        """Retrieve top-k episodic memories semantically related to context.
+
+        Convenience wrapper for retrieve() with episodic filter.
+        Returns empty list if memory subsystem is unavailable.
+        """
+        try:
+            return await self.retrieve(
+                query=context,
+                memory_types=[MemoryType.EPISODIC],
+                limit=k,
+            )
+        except Exception as exc:
+            logger.warning("Episodic retrieval failed: %s", exc)
+            return []
+
     async def count(self, memory_type: MemoryType | None = None) -> int:
         """Count stored memories."""
         if not self._conn:

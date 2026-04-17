@@ -149,6 +149,7 @@ class CognitiveCore(ModuleInterface):
         self.max_daydream_seconds = config.get("daydream", {}).get(
             "max_daydream_duration_seconds", 180
         )
+        self.episodic_memory_enabled = config.get("episodic_memory_enabled", True)
 
         self._current_state: CognitiveState | None = None
         self._saved_states: list[CognitiveState] = []
@@ -231,7 +232,7 @@ class CognitiveCore(ModuleInterface):
                 return cycle
 
             # Assemble the prompt
-            prompt = self._assemble_prompt(context, is_daydream=is_daydream)
+            prompt = await self._assemble_prompt(context, is_daydream=is_daydream)
 
             # Invoke the LLM
             request = InferenceRequest(
@@ -283,6 +284,33 @@ class CognitiveCore(ModuleInterface):
 
             cycle.completed_at = time.time()
 
+            # Store episodic memory of this turn (if enabled)
+            if (self.memory and self.episodic_memory_enabled
+                    and not is_daydream and cycle.monologue):
+                try:
+                    # Build a concise turn summary for storage
+                    decision_summary = ""
+                    if cycle.decisions:
+                        first_decision = cycle.decisions[0]
+                        decision_summary = first_decision.get("text", first_decision.get("rationale", ""))[:200]
+
+                    input_summary = ""
+                    if context and context.envelope:
+                        input_summary = context.envelope.processed_content[:300]
+
+                    memory_content = f"User: {input_summary}" if input_summary else ""
+                    if decision_summary:
+                        memory_content += f"\nResponse: {decision_summary}" if memory_content else f"Response: {decision_summary}"
+
+                    if memory_content:
+                        await self.memory.store({
+                            "type": "episodic",
+                            "content": memory_content,
+                            "importance": cycle.reflection.get("novelty", 0.5),
+                        })
+                except Exception as exc:
+                    logger.warning("Episodic memory storage failed: %s", exc)
+
         except Exception as exc:
             logger.exception("Reasoning cycle error: %s", exc)
             cycle.error = str(exc)
@@ -308,7 +336,7 @@ class CognitiveCore(ModuleInterface):
 
         return cycle
 
-    def _assemble_prompt(self, context: Any, is_daydream: bool = False) -> str:
+    async def _assemble_prompt(self, context: Any, is_daydream: bool = False) -> str:
         """Build the reasoning prompt from layered context blocks."""
         blocks = []
 
@@ -336,6 +364,31 @@ class CognitiveCore(ModuleInterface):
                 f"- {env.processed_content[:100]}" for env in context.sidebar[-5:]
             )
             blocks.append(f"=== PERIPHERAL ATTENTION (sidebar) ===\n{sidebar_text}")
+
+        # Episodic memory block (if available)
+        if self.memory and self.episodic_memory_enabled and not is_daydream:
+            try:
+                # Get the user input text for semantic retrieval
+                input_text = ""
+                if context and context.envelope:
+                    input_text = context.envelope.processed_content
+
+                if input_text:
+                    episodic_memories = await self.memory.retrieve_episodic(input_text, k=3)
+                    if episodic_memories:
+                        memory_lines = []
+                        for mem in episodic_memories[:3]:
+                            content = mem.get("content", mem.get("processed_content", ""))
+                            importance = mem.get("importance", 0.5)
+                            memory_lines.append(
+                                f"- [{importance:.1f}] {content[:200]}"
+                            )
+                        blocks.append(
+                            "=== RECENT EPISODIC MEMORY ===\n"
+                            + "\n".join(memory_lines)
+                        )
+            except Exception as exc:
+                logger.warning("Episodic memory retrieval in prompt assembly failed: %s", exc)
 
         # Instruction
         if is_daydream:
