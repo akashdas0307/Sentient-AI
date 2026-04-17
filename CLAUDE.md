@@ -27,11 +27,11 @@ The creator uses Ollama cloud with three models. Route work to the appropriate m
 
 | Model | Use For | Avoid For |
 |-------|---------|-----------|
-| **GLM-4.6** | Reasoning-heavy tasks, multi-file edits, architectural decisions, test design, anything ambiguous | Routine edits, linting |
-| **MiniMax-M2** | Routine edits, file creation, linting-level tasks, templates, documentation, hook scripts | Complex logic, test design |
-| **Kimi K2** | Long-context work: reading whole files or codebases simultaneously, cross-module analysis | Short tasks where context isn't needed |
+| **GLM-5.1** | Reasoning-heavy tasks, multi-file edits, architectural decisions, test design, anything ambiguous | Routine edits, linting |
+| **MiniMax-M2.7** | Routine edits, file creation, linting-level tasks, templates, documentation, hook scripts | Complex logic, test design |
+| **Kimi K2.5** | Long-context work: reading whole files or codebases simultaneously, cross-module analysis | Short tasks where context isn't needed |
 
-**Default:** GLM-4.6 for any task that doesn't clearly match MiniMax-M2 or Kimi K2.
+**Default:** GLM-5.1 for any task that doesn't clearly match MiniMax-M2.7 or Kimi K2.5.
 
 ## Approval Ladder
 
