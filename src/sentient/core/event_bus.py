@@ -32,6 +32,7 @@ class EventBus:
       - cognitive.cycle.complete  — Cognitive Core finished a cycle
       - cognitive.daydream.start  — Daydream session began
       - cognitive.daydream.end    — Daydream session ended
+      - cognitive.reprocess       — World Model requested revision, routing back to Cognitive Core
       - decision.proposed         — Cognitive Core proposed a decision
       - decision.reviewed         — World Model reviewed a decision
       - decision.approved         — Decision approved for execution

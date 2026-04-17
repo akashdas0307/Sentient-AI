@@ -58,4 +58,36 @@ Phase 5 achieved the project's primary milestone: the sentient framework had its
 
 ---
 
-*Last updated: 2026-04-17*
+## Phase 6: Continuous Cognition — 2026-04-18
+
+**Status:** COMPLETE
+**Branch:** auto/phase-6-continuous-cognition
+**Duration:** 1 session
+
+### Accomplished
+- Structured LLM output enforcement via Pydantic schemas + GBNF grammar
+- Episodic memory integration in Cognitive Core context assembly
+- World Model revision loop with 2-revision cap + fallback
+- Full-system wetware test: 3-turn conversation proves cross-turn memory
+- Performance baseline: 3.5x per-turn speedup vs Phase 5
+
+### Key Metrics
+| Metric | Phase 5 | Phase 6 | Change |
+|--------|---------|---------|--------|
+| Per-turn latency | 31.6s | 9.0s | **3.5x faster** |
+| Startup | 1.4s | 12.7s | +807% (embedding model) |
+| RSS | 186 MB | 959 MB | +415% (memory stack) |
+| Memory retrieval | N/A | 7.3ms | New capability |
+
+### Commits (8)
+- e758b8a docs: model routing table update
+- 4f025a5 feat(D1): structured output enforcement
+- 1a5b1b7 fix: pre-push unused imports
+- 1880b39 feat(D2): prompt engineering
+- 08556e7 feat(D3): revision loop
+- 155de73 feat(D4): episodic memory integration
+- 3258395 fix: wetware test path + timing
+- 6398e2f perf: performance baseline
+- (D7 close-out commit)
+
+*Last updated: 2026-04-18*

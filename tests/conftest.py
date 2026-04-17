@@ -68,7 +68,7 @@ class MockInferenceGateway:
 
         if request.model_label == "cognitive-core":
             return InferenceResponse(
-                text='{"monologue": "I am thinking about this.", "assessment": "A question from creator.", "decisions": [{"type": "respond", "parameters": {"text": "Hello!"}, "rationale": "Need to respond", "priority": "high"}], "reflection": {"confidence": 0.8, "uncertainties": [], "novelty": 0.3, "memory_candidates": []}}',
+                text='{"monologue": "I am thinking about this.", "assessment": "A question from creator.", "decisions": [{"type": "respond", "text": "Hello!", "rationale": "Need to respond", "priority": "high"}], "reflection": {"confidence": 0.8, "uncertainties": [], "novelty": 0.3, "memory_candidates": []}}',
                 model_used="mock-cognitive",
                 provider="mock",
                 fallback_used=False,
@@ -91,6 +91,11 @@ class MockInferenceGateway:
                 latency_ms=0,
                 error=f"Unknown model label: {request.model_label}",
             )
+
+    def reset_mock(self) -> None:
+        """Reset call count and last request (for fixture teardown)."""
+        self._call_count = 0
+        self._last_request = None
 
     def health_pulse(self):
         from sentient.core.module_interface import HealthPulse, ModuleStatus

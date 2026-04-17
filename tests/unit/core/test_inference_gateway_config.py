@@ -248,7 +248,7 @@ async def test_infer_cognitive_core_resolves() -> None:
     assert response.error is None
 
     call_kwargs = gw._litellm.acompletion.call_args.kwargs
-    assert call_kwargs["model"] == "ollama/glm-5.1:cloud"
+    assert call_kwargs["model"] == "ollama_chat/glm-5.1:cloud"
     assert call_kwargs["api_base"] == "http://localhost:11434"
     assert call_kwargs["max_tokens"] == 4096
     assert call_kwargs["temperature"] == 0.7
@@ -273,7 +273,7 @@ async def test_infer_world_model_resolves() -> None:
 
     # Verify it's different from cognitive-core primary
     call_kwargs = gw._litellm.acompletion.call_args.kwargs
-    assert call_kwargs["model"] == "ollama/minimax-m2.7:cloud"
+    assert call_kwargs["model"] == "ollama_chat/minimax-m2.7:cloud"
 
 
 @pytest.mark.asyncio
@@ -351,7 +351,7 @@ async def test_cognitive_core_falls_back_when_primary_fails() -> None:
 
     # Verify fallback call uses ollama/minimax-m2.7:cloud with correct api_base
     fallback_kwargs = gw._litellm.acompletion.call_args.kwargs
-    assert fallback_kwargs["model"] == "ollama/minimax-m2.7:cloud"
+    assert fallback_kwargs["model"] == "ollama_chat/minimax-m2.7:cloud"
     assert fallback_kwargs["api_base"] == "http://localhost:11434"
 
 
@@ -382,7 +382,7 @@ async def test_world_model_falls_back_when_primary_fails() -> None:
     assert call_count == 2
 
     fallback_kwargs = gw._litellm.acompletion.call_args.kwargs
-    assert fallback_kwargs["model"] == "ollama/kimi-k2.5:cloud"
+    assert fallback_kwargs["model"] == "ollama_chat/kimi-k2.5:cloud"
 
 
 # ---------------------------------------------------------------------------

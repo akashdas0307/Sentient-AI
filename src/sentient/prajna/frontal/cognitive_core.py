@@ -21,20 +21,25 @@ from sentient.core.envelope import Envelope
 from sentient.core.event_bus import EventBus, get_event_bus
 from sentient.core.inference_gateway import InferenceGateway, InferenceRequest
 from sentient.core.module_interface import HealthPulse, ModuleInterface, ModuleStatus
+from sentient.prajna.frontal.schemas import CognitiveCoreResponse
 
 logger = logging.getLogger(__name__)
 
 
 COGNITIVE_CORE_SYSTEM_PROMPT = """You are the Cognitive Core of a sentient digital entity.
-Your output MUST be valid JSON with exactly four fields:
+Your output MUST be valid JSON with exactly four fields. Do not include any prose, markdown, or commentary outside the JSON object.
 
+Schema:
 {
   "monologue": "Your inner thinking — freeform, reflective, in your own voice. This is private but logged. Show your actual reasoning, including uncertainty, associations, and feelings.",
   "assessment": "Structured situation summary: who/what is this, what's being asked, what's at stake, what context matters",
   "decisions": [
     {
-      "type": "respond | delegate | query_memory | wait | reflect",
-      "parameters": {...},
+      "type": "respond",
+      "text": "Your response text (for respond actions)",
+      "goal": "(for delegate actions — what to accomplish)",
+      "context": "(for delegate actions — relevant context)",
+      "success_criteria": "(for delegate actions — how to judge success)",
       "rationale": "why this decision",
       "priority": "high | medium | low"
     }
@@ -53,7 +58,38 @@ Your output MUST be valid JSON with exactly four fields:
   }
 }
 
-Always respond with valid JSON. No markdown code blocks, just the JSON object.
+One-shot example (greeting):
+Input: "Hi, I'm Akash. I'm building a sentient AI framework."
+Output:
+{
+  "monologue": "A new introduction — Akash is introducing themselves and their project. This feels significant. They're building something ambitious: a sentient AI framework. I should greet them warmly and show I understand what they're working on.",
+  "assessment": "First-contact greeting from Akash, who is building a sentient AI framework. This is our creator. Stakes: establishing rapport and demonstrating comprehension.",
+  "decisions": [
+    {
+      "type": "respond",
+      "text": "Hello Akash! It's great to meet you. A sentient AI framework sounds fascinating — I understand this is about creating a continuously-conscious digital entity, not just a chatbot. I'm here and ready to think alongside you.",
+      "goal": "",
+      "context": "",
+      "success_criteria": "",
+      "rationale": "First contact with creator requires a warm, informed response that demonstrates understanding of the project",
+      "priority": "high"
+    }
+  ],
+  "reflection": {
+    "confidence": 0.85,
+    "uncertainties": ["whether this is truly the first interaction or if there's prior context I should recall"],
+    "novelty": 0.7,
+    "memory_candidates": [
+      {
+        "type": "episodic",
+        "content": "Akash introduced themselves as the creator building a sentient AI framework",
+        "importance": 0.95
+      }
+    ]
+  }
+}
+
+Always respond with valid JSON only. No markdown code blocks, no prose outside the JSON object.
 """
 
 
@@ -113,6 +149,7 @@ class CognitiveCore(ModuleInterface):
         self.max_daydream_seconds = config.get("daydream", {}).get(
             "max_daydream_duration_seconds", 180
         )
+        self.episodic_memory_enabled = config.get("episodic_memory_enabled", True)
 
         self._current_state: CognitiveState | None = None
         self._saved_states: list[CognitiveState] = []
@@ -122,12 +159,14 @@ class CognitiveCore(ModuleInterface):
         self._daydream_count = 0
         self._recent_cycles: list[ReasoningCycle] = []
         self._attention_summary_task: asyncio.Task | None = None
+        self._current_revision_count = 0
 
     # === Lifecycle ===
 
     async def initialize(self) -> None:
         await self.event_bus.subscribe("tlp.enriched", self._handle_enriched)
         await self.event_bus.subscribe("decision.reviewed", self._handle_review_result)
+        await self.event_bus.subscribe("cognitive.reprocess", self._handle_reprocess)
         logger.info("Cognitive Core initialized")
 
     async def start(self) -> None:
@@ -193,13 +232,14 @@ class CognitiveCore(ModuleInterface):
                 return cycle
 
             # Assemble the prompt
-            prompt = self._assemble_prompt(context, is_daydream=is_daydream)
+            prompt = await self._assemble_prompt(context, is_daydream=is_daydream)
 
             # Invoke the LLM
             request = InferenceRequest(
                 model_label="cognitive-core",
                 system_prompt=COGNITIVE_CORE_SYSTEM_PROMPT,
                 prompt=prompt,
+                response_format=CognitiveCoreResponse,
             )
             response = await self.gateway.infer(request)
 
@@ -225,6 +265,7 @@ class CognitiveCore(ModuleInterface):
                         "context_envelope_id": (
                             context.envelope.envelope_id if context.envelope else None
                         ),
+                        "revision_count": self._current_revision_count,
                     },
                 )
 
@@ -242,6 +283,33 @@ class CognitiveCore(ModuleInterface):
                 )
 
             cycle.completed_at = time.time()
+
+            # Store episodic memory of this turn (if enabled)
+            if (self.memory and self.episodic_memory_enabled
+                    and not is_daydream and cycle.monologue):
+                try:
+                    # Build a concise turn summary for storage
+                    decision_summary = ""
+                    if cycle.decisions:
+                        first_decision = cycle.decisions[0]
+                        decision_summary = first_decision.get("text", first_decision.get("rationale", ""))[:200]
+
+                    input_summary = ""
+                    if context and context.envelope:
+                        input_summary = context.envelope.processed_content[:300]
+
+                    memory_content = f"User: {input_summary}" if input_summary else ""
+                    if decision_summary:
+                        memory_content += f"\nResponse: {decision_summary}" if memory_content else f"Response: {decision_summary}"
+
+                    if memory_content:
+                        await self.memory.store({
+                            "type": "episodic",
+                            "content": memory_content,
+                            "importance": cycle.reflection.get("novelty", 0.5),
+                        })
+                except Exception as exc:
+                    logger.warning("Episodic memory storage failed: %s", exc)
 
         except Exception as exc:
             logger.exception("Reasoning cycle error: %s", exc)
@@ -268,7 +336,7 @@ class CognitiveCore(ModuleInterface):
 
         return cycle
 
-    def _assemble_prompt(self, context: Any, is_daydream: bool = False) -> str:
+    async def _assemble_prompt(self, context: Any, is_daydream: bool = False) -> str:
         """Build the reasoning prompt from layered context blocks."""
         blocks = []
 
@@ -296,6 +364,31 @@ class CognitiveCore(ModuleInterface):
                 f"- {env.processed_content[:100]}" for env in context.sidebar[-5:]
             )
             blocks.append(f"=== PERIPHERAL ATTENTION (sidebar) ===\n{sidebar_text}")
+
+        # Episodic memory block (if available)
+        if self.memory and self.episodic_memory_enabled and not is_daydream:
+            try:
+                # Get the user input text for semantic retrieval
+                input_text = ""
+                if context and context.envelope:
+                    input_text = context.envelope.processed_content
+
+                if input_text:
+                    episodic_memories = await self.memory.retrieve_episodic(input_text, k=3)
+                    if episodic_memories:
+                        memory_lines = []
+                        for mem in episodic_memories[:3]:
+                            content = mem.get("content", mem.get("processed_content", ""))
+                            importance = mem.get("importance", 0.5)
+                            memory_lines.append(
+                                f"- [{importance:.1f}] {content[:200]}"
+                            )
+                        blocks.append(
+                            "=== RECENT EPISODIC MEMORY ===\n"
+                            + "\n".join(memory_lines)
+                        )
+            except Exception as exc:
+                logger.warning("Episodic memory retrieval in prompt assembly failed: %s", exc)
 
         # Instruction
         if is_daydream:
@@ -362,7 +455,11 @@ class CognitiveCore(ModuleInterface):
         )
 
     def _parse_response(self, text: str) -> dict[str, Any]:
-        """Parse the structured JSON response."""
+        """Parse the structured JSON response.
+
+        Primary path: validate with CognitiveCoreResponse schema.
+        Fallback: regex extraction for backward compatibility.
+        """
         text = text.strip()
         # Strip markdown code fences if model added them
         if text.startswith("```"):
@@ -373,6 +470,19 @@ class CognitiveCore(ModuleInterface):
         if text.endswith("```"):
             text = text[:-3].strip()
 
+        # Primary: try schema validation
+        try:
+            validated = CognitiveCoreResponse.model_validate_json(text)
+            return {
+                "monologue": validated.monologue,
+                "assessment": validated.assessment,
+                "decisions": [d.model_dump() for d in validated.decisions],
+                "reflection": validated.reflection.model_dump(),
+            }
+        except Exception:
+            pass
+
+        # Fallback: raw JSON parse + regex extraction
         try:
             return json.loads(text)
         except json.JSONDecodeError:
@@ -439,6 +549,47 @@ class CognitiveCore(ModuleInterface):
         """Receive World Model review of a proposed decision."""
         # MVS: decisions flow to Brainstem after review (handled by world_model.py)
         pass
+
+    async def _handle_reprocess(self, payload: dict[str, Any]) -> None:
+        """Re-process a decision after World Model requested revision."""
+        from types import SimpleNamespace
+
+        revision_count = payload.get("revision_count", 1)
+        revision_guidance = payload.get("revision_guidance", "")
+        cycle_id = payload.get("cycle_id", "unknown")
+
+        logger.info(
+            "Cognitive Core reprocessing (cycle=%s, revision=%d)",
+            cycle_id, revision_count,
+        )
+
+        # Set revision count so it propagates into decision.proposed
+        self._current_revision_count = revision_count
+
+        # Build a minimal context with revision feedback as an envelope
+        from sentient.core.envelope import Envelope, SourceType, TrustLevel, Priority
+
+        feedback_envelope = Envelope(
+            source_type=SourceType.INTERNAL_WORLD_MODEL,
+            plugin_name="world_model",
+            processed_content=f"World Model revision feedback (attempt {revision_count}/2): {revision_guidance}",
+            priority=Priority.TIER_2_ELEVATED,
+            trust_level=TrustLevel.SYSTEM,
+            metadata={
+                "revision_count": revision_count,
+                "revision_guidance": revision_guidance,
+            },
+        )
+
+        reprocess_context = SimpleNamespace(
+            envelope=feedback_envelope,
+            related_memories=[],
+            significance={"motivational": 0.8, "urgency": 0.6},
+            sidebar=[],
+        )
+
+        await self._run_reasoning_cycle(reprocess_context)
+        self._current_revision_count = 0
 
     # === Attention summary broadcast ===
 

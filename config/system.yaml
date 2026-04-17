@@ -39,6 +39,7 @@ queue_zone:
 
 # Cognitive Core configuration
 cognitive_core:
+  episodic_memory_enabled: true
   reasoning:
     fast_path_complexity_threshold: 0.3   # below this, skip steps 2-3
     max_reasoning_seconds: 60
