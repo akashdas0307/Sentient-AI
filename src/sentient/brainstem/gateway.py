@@ -104,12 +104,15 @@ class Brainstem(ModuleInterface):
         """Translate decision to plugin command and execute."""
         decision_type = decision.get("type", "")
         parameters = decision.get("parameters", {})
+        logger.info("Brainstem executing decision type=%s parameters=%s advisory=%r", decision_type, parameters, advisory)
 
         # Map decision type to plugin capability
         if decision_type == "respond":
+            # Text may be in parameters.text or advisory (from World Model synthesis)
+            text = parameters.get("text") or advisory
             capability = "text_chat"
             plugin_params = {
-                "text": parameters.get("text", ""),
+                "text": text or "(no response content)",
                 "metadata": {"advisory": advisory} if advisory else {},
             }
         elif decision_type == "delegate":
@@ -142,6 +145,7 @@ class Brainstem(ModuleInterface):
 
         # Route to plugin
         plugin_name = self._capability_map.get(capability)
+        logger.info("Brainstem plugin lookup: capability=%r map=%s plugin_name=%r", capability, self._capability_map, plugin_name)
         if not plugin_name:
             logger.error("No plugin supports capability: %s", capability)
             self._failed_count += 1
