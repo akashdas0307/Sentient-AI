@@ -232,14 +232,24 @@ class WorldModel(ModuleInterface):
 
     def _build_review_prompt(self, decision: dict) -> str:
         constitution_text = "\n".join(f"- {p}" for p in BASELINE_CONSTITUTION)
+        # Build decision details from flat DecisionAction format
+        decision_details = f"Type: {decision.get('type', 'unknown')}\n"
+        if decision.get('text'):
+            decision_details += f"Response Text: {decision['text']}\n"
+        if decision.get('goal'):
+            decision_details += f"Goal: {decision['goal']}\n"
+        if decision.get('context'):
+            decision_details += f"Context: {decision['context']}\n"
+        if decision.get('success_criteria'):
+            decision_details += f"Success Criteria: {decision['success_criteria']}\n"
+        decision_details += f"Rationale: {decision.get('rationale', '(none provided)')}\n"
+        decision_details += f"Priority: {decision.get('priority', 'medium')}"
+
         return f"""=== BASELINE CONSTITUTION (immutable) ===
 {constitution_text}
 
 === PROPOSED DECISION ===
-Type: {decision.get('type')}
-Parameters: {json.dumps(decision.get('parameters', {}), indent=2)}
-Rationale: {decision.get('rationale', '(none provided)')}
-Priority: {decision.get('priority', 'medium')}
+{decision_details}
 
 === YOUR TASK ===
 Review this decision across the 5 dimensions and produce your JSON verdict.
