@@ -158,12 +158,14 @@ class CognitiveCore(ModuleInterface):
         self._daydream_count = 0
         self._recent_cycles: list[ReasoningCycle] = []
         self._attention_summary_task: asyncio.Task | None = None
+        self._current_revision_count = 0
 
     # === Lifecycle ===
 
     async def initialize(self) -> None:
         await self.event_bus.subscribe("tlp.enriched", self._handle_enriched)
         await self.event_bus.subscribe("decision.reviewed", self._handle_review_result)
+        await self.event_bus.subscribe("cognitive.reprocess", self._handle_reprocess)
         logger.info("Cognitive Core initialized")
 
     async def start(self) -> None:
@@ -262,6 +264,7 @@ class CognitiveCore(ModuleInterface):
                         "context_envelope_id": (
                             context.envelope.envelope_id if context.envelope else None
                         ),
+                        "revision_count": self._current_revision_count,
                     },
                 )
 
@@ -493,6 +496,47 @@ class CognitiveCore(ModuleInterface):
         """Receive World Model review of a proposed decision."""
         # MVS: decisions flow to Brainstem after review (handled by world_model.py)
         pass
+
+    async def _handle_reprocess(self, payload: dict[str, Any]) -> None:
+        """Re-process a decision after World Model requested revision."""
+        from types import SimpleNamespace
+
+        revision_count = payload.get("revision_count", 1)
+        revision_guidance = payload.get("revision_guidance", "")
+        cycle_id = payload.get("cycle_id", "unknown")
+
+        logger.info(
+            "Cognitive Core reprocessing (cycle=%s, revision=%d)",
+            cycle_id, revision_count,
+        )
+
+        # Set revision count so it propagates into decision.proposed
+        self._current_revision_count = revision_count
+
+        # Build a minimal context with revision feedback as an envelope
+        from sentient.core.envelope import Envelope, SourceType, TrustLevel, Priority
+
+        feedback_envelope = Envelope(
+            source_type=SourceType.INTERNAL_WORLD_MODEL,
+            plugin_name="world_model",
+            processed_content=f"World Model revision feedback (attempt {revision_count}/2): {revision_guidance}",
+            priority=Priority.TIER_2_ELEVATED,
+            trust_level=TrustLevel.SYSTEM,
+            metadata={
+                "revision_count": revision_count,
+                "revision_guidance": revision_guidance,
+            },
+        )
+
+        reprocess_context = SimpleNamespace(
+            envelope=feedback_envelope,
+            related_memories=[],
+            significance={"motivational": 0.8, "urgency": 0.6},
+            sidebar=[],
+        )
+
+        await self._run_reasoning_cycle(reprocess_context)
+        self._current_revision_count = 0
 
     # === Attention summary broadcast ===
 

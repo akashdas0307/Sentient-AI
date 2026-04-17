@@ -116,6 +116,7 @@ class WorldModel(ModuleInterface):
         """Review a proposed decision from the Cognitive Core."""
         decision = payload["decision"]
         cycle_id = payload.get("cycle_id", "unknown")
+        revision_count = payload.get("revision_count", 0)
 
         try:
             verdict = await self._review(cycle_id, decision)
@@ -148,7 +149,7 @@ class WorldModel(ModuleInterface):
                 },
             )
 
-            # If approved, route to execution
+            # Route based on verdict
             if verdict.verdict in ("approved", "advisory"):
                 await self.event_bus.publish(
                     "decision.approved",
@@ -171,6 +172,42 @@ class WorldModel(ModuleInterface):
                     "World Model VETOED decision (cycle=%s, type=%s): %s",
                     cycle_id, decision.get("type"), verdict.veto_reason,
                 )
+            elif verdict.verdict == "revision_requested":
+                revision_guidance = (
+                    verdict.revision_guidance
+                    if hasattr(verdict, "revision_guidance")
+                    else ""
+                )
+                if revision_count < 2:
+                    # Route back to Cognitive Core for re-processing
+                    logger.info(
+                        "World Model requests revision (cycle=%s, attempt=%d/2)",
+                        cycle_id, revision_count + 1,
+                    )
+                    await self.event_bus.publish(
+                        "cognitive.reprocess",
+                        {
+                            "cycle_id": cycle_id,
+                            "decision": decision,
+                            "verdict": verdict,
+                            "revision_count": revision_count + 1,
+                            "revision_guidance": revision_guidance,
+                        },
+                    )
+                else:
+                    # Hard cap hit — override to approved
+                    logger.warning(
+                        "world_model.revision_cap_hit: cycle=%s exceeded 2 revisions, overriding to approved",
+                        cycle_id,
+                    )
+                    await self.event_bus.publish(
+                        "decision.approved",
+                        {
+                            "cycle_id": cycle_id,
+                            "decision": decision,
+                            "advisory_notes": f"Revision cap exceeded (2 attempts). {verdict.advisory_notes}",
+                        },
+                    )
 
         except Exception as exc:
             logger.exception("World Model review error: %s", exc)
