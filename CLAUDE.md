@@ -99,6 +99,16 @@ A change is "done" only when ALL of these are true:
 | GLM-5.1 | glm-5.1:cloud | Architect, Planner, Critic | Reasoning-heavy tasks, multi-file edits, architectural decisions |
 | Kimi-K2.5 | kimi-k2.5 | Writer, Explorer | Long-context work, documentation, cross-module analysis |
 | MiniMax-M2.7 | minimax-m2.7 | Executor, Test Engineer | Routine edits, file creation, linting, test scaffolding |
+| Gemma4 | gemma4:31b-cloud | UI Verifier | Browser automation via Playwright MCP, visual UI assertions, screenshot interpretation |
+
+### UI Verification Agent
+
+The `ui-verifier` agent uses Gemma4 (gemma4:31b-cloud) with Playwright MCP tools to visually verify the chat interface:
+- Drives Playwright MCP tools: `browser_navigate`, `browser_click`, `browser_type`, `browser_take_screenshot`, `browser_evaluate`, `browser_wait_for`
+- Uses vision capability to reason about UI state from screenshots
+- NEVER edits source code (RED gate — violations require immediate phase restart)
+- Produces findings reports: "Send button triggers network request: YES/NO", "Response renders in chat panel: YES/NO", "Recent Events populates: YES/NO"
+- Always tears down browser sessions explicitly — no leaked Playwright contexts
 
 ### ORCHESTRATION — HARD RULES (RED gates)
 1. The main Claude Code session MUST NOT edit production code (src/**) or test code (tests/**).
