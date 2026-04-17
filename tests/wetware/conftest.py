@@ -1,7 +1,6 @@
 """Wetware test fixtures — requires running Ollama with GLM-5.1 and MiniMax-M2 models."""
 from __future__ import annotations
 
-import pytest
 import pytest_asyncio
 import yaml
 from pathlib import Path

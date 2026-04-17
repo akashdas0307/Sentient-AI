@@ -325,7 +325,7 @@ class CognitiveCore(ModuleInterface):
             elif isinstance(assessment, dict):
                 recent_summary = f"Last activity: {str(assessment)[:100]}"
             else:
-                recent_summary = f"Last activity: (unparseable)"
+                recent_summary = "Last activity: (unparseable)"
         return f"Current time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n{recent_summary}"
 
     def _build_input_block(self, context: Any) -> str:

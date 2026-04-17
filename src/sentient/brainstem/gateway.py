@@ -108,8 +108,25 @@ class Brainstem(ModuleInterface):
 
         # Map decision type to plugin capability
         if decision_type == "respond":
-            # Text may be in parameters.text or advisory (from World Model synthesis)
-            text = parameters.get("text") or advisory
+            # GLM-5.1:cloud doesn't reliably follow the JSON schema for
+            # parameters.text — it uses varying key names (message, content,
+            # content_type, style, etc.). Strategy: try known keys first, then
+            # fall back to the longest string value in parameters, then advisory.
+            text = (
+                parameters.get("text")
+                or parameters.get("content")
+                or parameters.get("message")
+                or ""
+            )
+            if not text.strip():
+                # Last resort: find the longest string value in parameters
+                string_vals = [v for v in parameters.values() if isinstance(v, str) and len(v) > 10]
+                if string_vals:
+                    text = max(string_vals, key=len)
+                    logger.info("Brainstem: using longest parameters value as response text (key not 'text')")
+            if not text.strip():
+                logger.warning("Brainstem: no response text in parameters, falling back to advisory")
+                text = advisory
             capability = "text_chat"
             plugin_params = {
                 "text": text or "(no response content)",
