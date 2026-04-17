@@ -110,9 +110,39 @@
   },
   "hotPaths": [
     {
+      "path": "src/sentient/persona/identity_manager.py",
+      "accessCount": 16,
+      "lastAccessed": 1776418768162,
+      "type": "file"
+    },
+    {
       "path": "pyproject.toml",
+      "accessCount": 16,
+      "lastAccessed": 1776422447229,
+      "type": "file"
+    },
+    {
+      "path": "CLAUDE.md",
       "accessCount": 12,
-      "lastAccessed": 1776361287184,
+      "lastAccessed": 1776414400820,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/main.py",
+      "accessCount": 12,
+      "lastAccessed": 1776426137562,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/core/inference_gateway.py",
+      "accessCount": 11,
+      "lastAccessed": 1776416814452,
+      "type": "file"
+    },
+    {
+      "path": "config/inference_gateway.yaml",
+      "accessCount": 10,
+      "lastAccessed": 1776422019517,
       "type": "file"
     },
     {
@@ -134,6 +164,36 @@
       "type": "file"
     },
     {
+      "path": "src/sentient/api/server.py",
+      "accessCount": 7,
+      "lastAccessed": 1776409297105,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/memory/architecture.py",
+      "accessCount": 7,
+      "lastAccessed": 1776415230580,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 7,
+      "lastAccessed": 1776422009688,
+      "type": "file"
+    },
+    {
+      "path": "docs/DEV_WORKFLOW.md",
+      "accessCount": 6,
+      "lastAccessed": 1776369191549,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/sleep/scheduler.py",
+      "accessCount": 6,
+      "lastAccessed": 1776423846569,
+      "type": "file"
+    },
+    {
       "path": "tests/core/test_event_bus.py",
       "accessCount": 5,
       "lastAccessed": 1776361214985,
@@ -146,45 +206,21 @@
       "type": "file"
     },
     {
-      "path": "CLAUDE.md",
-      "accessCount": 5,
-      "lastAccessed": 1776361269276,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/memory/architecture.py",
-      "accessCount": 5,
-      "lastAccessed": 1776363828989,
-      "type": "file"
-    },
-    {
       "path": "src/sentient/memory/gatekeeper.py",
       "accessCount": 5,
       "lastAccessed": 1776363834731,
       "type": "file"
     },
     {
-      "path": "README.md",
-      "accessCount": 4,
-      "lastAccessed": 1776352075395,
+      "path": "src/sentient/core/module_interface.py",
+      "accessCount": 5,
+      "lastAccessed": 1776369195483,
       "type": "file"
     },
     {
-      "path": "docs/DEV_WORKFLOW.md",
-      "accessCount": 4,
-      "lastAccessed": 1776355431752,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/api/server.py",
-      "accessCount": 4,
-      "lastAccessed": 1776358036063,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/main.py",
-      "accessCount": 4,
-      "lastAccessed": 1776358036113,
+      "path": "src/sentient/core/event_bus.py",
+      "accessCount": 5,
+      "lastAccessed": 1776369243846,
       "type": "file"
     },
     {
@@ -212,21 +248,21 @@
       "type": "file"
     },
     {
-      "path": "src/sentient/core/module_interface.py",
+      "path": "src/sentient/prajna/frontal/harness_adapter.py",
       "accessCount": 4,
-      "lastAccessed": 1776363830001,
+      "lastAccessed": 1776369157197,
       "type": "file"
     },
     {
-      "path": "src/sentient/core/event_bus.py",
+      "path": "src/sentient/core/lifecycle.py",
       "accessCount": 4,
-      "lastAccessed": 1776363835135,
+      "lastAccessed": 1776369168052,
       "type": "file"
     },
     {
       "path": "scripts/setup-dev.sh",
-      "accessCount": 3,
-      "lastAccessed": 1776352390081,
+      "accessCount": 4,
+      "lastAccessed": 1776369272531,
       "type": "file"
     },
     {
@@ -243,8 +279,20 @@
     },
     {
       "path": "docs/DECISIONS.md",
-      "accessCount": 2,
-      "lastAccessed": 1776352075630,
+      "accessCount": 3,
+      "lastAccessed": 1776369191059,
+      "type": "file"
+    },
+    {
+      "path": "SETUP.md",
+      "accessCount": 3,
+      "lastAccessed": 1776422009746,
+      "type": "file"
+    },
+    {
+      "path": "config/system.yaml",
+      "accessCount": 3,
+      "lastAccessed": 1776422019498,
       "type": "file"
     },
     {
@@ -278,12 +326,6 @@
       "type": "file"
     },
     {
-      "path": "src/sentient/prajna/frontal/harness_adapter.py",
-      "accessCount": 2,
-      "lastAccessed": 1776356122598,
-      "type": "file"
-    },
-    {
       "path": "src/sentient/brainstem/gateway.py",
       "accessCount": 2,
       "lastAccessed": 1776356122695,
@@ -302,18 +344,6 @@
       "type": "file"
     },
     {
-      "path": "src/sentient/core/inference_gateway.py",
-      "accessCount": 2,
-      "lastAccessed": 1776356122917,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/core/lifecycle.py",
-      "accessCount": 2,
-      "lastAccessed": 1776356122954,
-      "type": "file"
-    },
-    {
       "path": "src/sentient/brainstem/plugins/base.py",
       "accessCount": 2,
       "lastAccessed": 1776356128896,
@@ -329,18 +359,6 @@
       "path": "doc/PRD.md",
       "accessCount": 1,
       "lastAccessed": 1776347600024,
-      "type": "file"
-    },
-    {
-      "path": "config/system.yaml",
-      "accessCount": 1,
-      "lastAccessed": 1776347600093,
-      "type": "file"
-    },
-    {
-      "path": "config/inference_gateway.yaml",
-      "accessCount": 1,
-      "lastAccessed": 1776347600115,
       "type": "file"
     },
     {
@@ -368,27 +386,9 @@
       "type": "file"
     },
     {
-      "path": "src/sentient/persona/identity_manager.py",
-      "accessCount": 1,
-      "lastAccessed": 1776347619022,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/sleep/scheduler.py",
-      "accessCount": 1,
-      "lastAccessed": 1776347619203,
-      "type": "file"
-    },
-    {
       "path": "src/sentient/scripts/init_db.py",
       "accessCount": 1,
       "lastAccessed": 1776347626611,
-      "type": "file"
-    },
-    {
-      "path": "SETUP.md",
-      "accessCount": 1,
-      "lastAccessed": 1776347626737,
       "type": "file"
     },
     {

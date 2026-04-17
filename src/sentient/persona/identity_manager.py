@@ -107,7 +107,8 @@ class PersonaManager(ModuleInterface):
             self._developmental = self._blank_developmental()
 
         # Set first boot timestamp if not set
-        if not self._developmental.get("maturity_log", [{}])[0].get("started_at"):
+        maturity_log = self._developmental.get("maturity_log") or []
+        if not maturity_log or not maturity_log[0].get("started_at"):
             self._developmental["maturity_log"] = [{
                 "stage": "nascent",
                 "started_at": time.time(),

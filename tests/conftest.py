@@ -1,11 +1,36 @@
 """Shared test fixtures for the Sentient AI Framework test suite."""
 from __future__ import annotations
 
+import gc
+
 import pytest
 
 from sentient.core.envelope import Envelope, Priority, SourceType, TrustLevel
 from sentient.core.event_bus import EventBus
 from sentient.core.inference_gateway import InferenceRequest, InferenceResponse
+
+
+# ---------------------------------------------------------------------------
+# Memory leak prevention — pytest accumulates log records and mock objects
+# across the session.  These fixtures keep RAM flat:
+#   1. Forced GC after every test
+#   2. caplog record cleanup after every test
+#   3. Mock teardown in existing fixtures (reset_mock + del)
+# Async task cleanup is handled per-module (e.g. tests/unit/sleep/conftest.py).
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def cleanup_after_each_test():
+    """Force garbage collection after every test to prevent memory accumulation."""
+    yield
+    gc.collect()
+
+
+@pytest.fixture(autouse=True)
+def reset_log_handler(caplog):
+    """Clear caplog records after each test to prevent log record accumulation."""
+    yield
+    caplog.handler.records.clear()
 
 
 @pytest.fixture
@@ -150,25 +175,35 @@ class MockPersona:
 @pytest.fixture
 def gateway() -> MockInferenceGateway:
     """Mock InferenceGateway with canned responses."""
-    return MockInferenceGateway()
+    m = MockInferenceGateway()
+    yield m
+    m.reset_mock()
+    del m
 
 
 @pytest.fixture
 def vetoing_gateway() -> VetoingInferenceGateway:
     """Mock InferenceGateway that vetoes all world-model decisions."""
-    return VetoingInferenceGateway()
+    m = VetoingInferenceGateway()
+    yield m
+    m.reset_mock()
+    del m
 
 
 @pytest.fixture
 def memory() -> MockMemory:
     """Mock MemoryArchitecture returning empty results."""
-    return MockMemory()
+    m = MockMemory()
+    yield m
+    del m
 
 
 @pytest.fixture
 def persona() -> MockPersona:
     """Mock PersonaManager."""
-    return MockPersona()
+    m = MockPersona()
+    yield m
+    del m
 
 
 @pytest.fixture
