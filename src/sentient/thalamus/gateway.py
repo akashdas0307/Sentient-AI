@@ -49,6 +49,7 @@ class Thalamus(ModuleInterface):
 
         # Batching state
         self._current_batch: list[Envelope] = []
+        self._current_batch_outbox: list[Envelope] = []  # snapshot for emission
         self._batch_started_at: float | None = None
         self._batch_lock = asyncio.Lock()
         self._batch_task: asyncio.Task | None = None
@@ -180,24 +181,40 @@ class Thalamus(ModuleInterface):
 
     async def _maybe_emit_batch(self, force_after: float | None = None) -> None:
         """Check if it's time to emit the current batch."""
+        # Snapshot the batch under lock, then release before emitting to
+        # avoid holding the lock while downstream handlers call back in.
         async with self._batch_lock:
             if not self._current_batch or self._batch_started_at is None:
                 return
             elapsed = time.time() - self._batch_started_at
             window = force_after if force_after is not None else self.current_window
-            if elapsed >= window:
-                await self._emit_current_batch()
+            logger.debug(
+                "_maybe_emit_batch: batch=%d elapsed=%.3f window=%.3f",
+                len(self._current_batch), elapsed, window,
+            )
+            if elapsed < window:
+                return
+            # Snapshot into outbox — done under lock
+            self._current_batch_outbox = list(self._current_batch)
+            self._current_batch = []
+            self._batch_started_at = None
+
+        # Emit without lock held
+        await self._emit_current_batch()
 
     async def _emit_current_batch(self) -> None:
-        """Emit the current batch (must be called with _batch_lock held)."""
-        if not self._current_batch:
-            return
-        batch = self._current_batch
-        self._current_batch = []
+        """Emit the current batch.
+
+        The _batch_lock is NOT held during this method (the snapshot was taken
+        before acquiring the lock in _maybe_emit_batch). This prevents deadlock
+        when downstream handlers call back into thalamus while the lock is held.
+        """
+        batch = self._current_batch_outbox
+        self._current_batch_outbox = []
         self._batch_started_at = None
         self._batches_emitted += 1
 
-        # Forward each envelope
+        # Forward each envelope (no lock held — event bus is async-safe)
         # In a future enhancement, Layer 2 LLM classification would happen here
         # for nuanced relevance/priority refinement on the whole batch.
         for envelope in batch:

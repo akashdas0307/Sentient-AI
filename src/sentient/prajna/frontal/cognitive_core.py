@@ -175,6 +175,23 @@ class CognitiveCore(ModuleInterface):
         )
 
         try:
+            # Guard: if no envelope (daydream with context=None or no envelope),
+            # publish cycle events with null IDs and return early
+            if context is None or context.envelope is None:
+                logger.debug("Reasoning cycle skipped: no envelope (daydream)")
+                cycle.completed_at = time.time()
+                await self.event_bus.publish(
+                    "cognitive.cycle.complete",
+                    {
+                        "cycle_id": cycle.cycle_id,
+                        "is_daydream": is_daydream,
+                        "monologue": "",
+                        "decision_count": 0,
+                        "duration_ms": 0,
+                    },
+                )
+                return cycle
+
             # Assemble the prompt
             prompt = self._assemble_prompt(context, is_daydream=is_daydream)
 
