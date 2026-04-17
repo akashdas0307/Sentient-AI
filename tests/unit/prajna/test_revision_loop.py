@@ -1,6 +1,6 @@
 """Tests for the World Model revision loop (D3)."""
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from sentient.prajna.frontal.world_model import WorldModel, ReviewVerdict
 from sentient.prajna.frontal.cognitive_core import CognitiveCore
