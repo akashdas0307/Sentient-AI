@@ -62,7 +62,7 @@ def base_config():
 @pytest.fixture
 def scheduler(mock_event_bus, mock_lifecycle, mock_memory, base_config):
     """SleepScheduler instance. Tests that start async tasks should cancel them."""
-    s = SleepScheduler(base_config, mock_lifecycle, mock_memory, mock_event_bus)
+    s = SleepScheduler(base_config, mock_lifecycle, memory=mock_memory, consolidation_engine=None, event_bus=mock_event_bus)
     yield s
     # Cancel any tasks the scheduler created
     for attr in ("_scheduler_task", "_current_sleep_task"):

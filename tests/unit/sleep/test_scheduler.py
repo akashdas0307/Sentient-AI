@@ -36,7 +36,7 @@ class TestInit:
             "stages": {"settling_minutes": 45, "pre_wake_minutes": 45},
             "default_circadian": {"sleep_hour": 22, "wake_hour": 7},
         }
-        scheduler = SleepScheduler(config, mock_lifecycle, mock_memory, mock_event_bus)
+        scheduler = SleepScheduler(config, mock_lifecycle, memory=mock_memory, consolidation_engine=None, event_bus=mock_event_bus)
         assert scheduler.min_hours == 7
         assert scheduler.max_hours == 10
 
@@ -46,7 +46,7 @@ class TestInit:
             "stages": {"settling_minutes": 45, "pre_wake_minutes": 45},
             "default_circadian": {"sleep_hour": 23, "wake_hour": 6},
         }
-        scheduler = SleepScheduler(config, mock_lifecycle, mock_memory, mock_event_bus)
+        scheduler = SleepScheduler(config, mock_lifecycle, memory=mock_memory, consolidation_engine=None, event_bus=mock_event_bus)
         assert scheduler.sleep_hour == 23
         assert scheduler.wake_hour == 6
 
@@ -61,7 +61,7 @@ class TestInit:
         config = {
             "stages": {"settling_minutes": 30, "pre_wake_minutes": 20},
         }
-        scheduler = SleepScheduler(config, mock_lifecycle, mock_memory, mock_event_bus)
+        scheduler = SleepScheduler(config, mock_lifecycle, memory=mock_memory, consolidation_engine=None, event_bus=mock_event_bus)
         assert scheduler.settling_minutes == 30
         assert scheduler.pre_wake_minutes == 20
 
@@ -127,7 +127,7 @@ class TestStartShutdown:
 
 class TestIsSleepTime:
     def _make(self, config, mock_event_bus, mock_lifecycle, mock_memory):
-        return SleepScheduler(config, mock_lifecycle, mock_memory, mock_event_bus)
+        return SleepScheduler(config, mock_lifecycle, memory=mock_memory, consolidation_engine=None, event_bus=mock_event_bus)
 
     def _hour(self, hour: int):
         mock_now = MagicMock()
