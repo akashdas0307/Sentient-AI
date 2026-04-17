@@ -37,3 +37,19 @@ Phase 4a delivered comprehensive test coverage for the memory and health substra
 ---
 
 *Last updated: 2026-04-16*
+
+---
+
+## Phase 4b: Surface Coverage
+
+Phase 4b increased coverage on low-coverage modules and configured InferenceGateway model labels. 21 tests were added for api/server.py (92% coverage, up from 16%), 26 tests for prajna/frontal/harness_adapter.py (100%, up from 42%), and 32 tests for persona/identity_manager.py (~75%, up from 28%). The InferenceGateway config was updated to map all 7 model labels to Ollama cloud models. A critical production bug was discovered: `identity_manager.py:110` raises IndexError on empty maturity_log lists during first boot. RAM exhaustion was encountered during test runs — running all tests at once loads chromadb + sentence_transformers + litellm (~2.3GB), which exhausts all available RAM on the development machine. The `scripts/run_tests_safe.sh` runner was created for per-directory subprocess isolation.
+
+---
+
+## Phase 4c: Recovery + Lazy Imports + First-Boot Bug Fix
+
+Phase 4c recovered from Phase 4b's incomplete state: fixed the production-critical first-boot IndexError in identity_manager.py (architect-approved `or []` pattern), resolved RAM exhaustion in tests by removing the session-scoped event_loop fixture and creating `tests/unit/sleep/conftest.py` with proper async teardown, fixed the CI workflow to use per-directory test isolation, and verified lazy imports at 8.3MB. Coverage results: api/server.py 91.4%, identity_manager.py 100%, scheduler.py 95%, harness_adapter.py 100%, inference_gateway.py ~95%. main.py at 41% (6 heavy async tests excluded from CI due to RAM). The wetware fixture was fixed to load full config from YAML. A documentation audit was completed identifying stale claims in README, SETUP, and HANDOFF.
+
+---
+
+*Last updated: 2026-04-17*
