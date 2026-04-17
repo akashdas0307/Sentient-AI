@@ -1,9 +1,11 @@
 """Wetware smoke test — sends Hello through full pipeline with real LLM calls.
 
-Requires: Ollama running locally with GLM-4.6 and MiniMax-M2 models.
+Requires: Ollama running locally with glm-5.1:cloud and minimax-m2.7:cloud models.
 Run: pytest -m wetware tests/wetware/
 """
 from __future__ import annotations
+
+import asyncio
 
 import pytest
 
@@ -43,6 +45,7 @@ async def test_real_pipeline_hello(real_gateway):
     brainstem = Brainstem({}, bus)
     chat_output = ChatOutputPlugin()
 
+    lifecycle.register(real_gateway)
     for mod in [thalamus, checkpost, queue_zone, tlp, cognitive, world_model, brainstem]:
         lifecycle.register(mod)
 
@@ -52,12 +55,16 @@ async def test_real_pipeline_hello(real_gateway):
     await brainstem.register_plugin(chat_output)
 
     await chat_input.inject({"text": "urgent: Hello"})
-    import asyncio
-    await asyncio.sleep(5)
 
+    # Poll queue until we get a response or timeout (120s for real LLM calls)
+    deadline = asyncio.get_running_loop().time() + 120
     output_messages = []
-    while not chat_output.outgoing_queue.empty():
-        output_messages.append(await chat_output.outgoing_queue.get())
+    while asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(2)
+        while not chat_output.outgoing_queue.empty():
+            output_messages.append(await chat_output.outgoing_queue.get())
+        if output_messages:
+            break
 
     assert len(output_messages) >= 1, "No response from real pipeline"
     assert output_messages[0].get("text"), "Empty response from real pipeline"

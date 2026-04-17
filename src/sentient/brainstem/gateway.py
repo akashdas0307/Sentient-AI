@@ -104,12 +104,32 @@ class Brainstem(ModuleInterface):
         """Translate decision to plugin command and execute."""
         decision_type = decision.get("type", "")
         parameters = decision.get("parameters", {})
+        logger.info("Brainstem executing decision type=%s parameters=%s advisory=%r", decision_type, parameters, advisory)
 
         # Map decision type to plugin capability
         if decision_type == "respond":
+            # GLM-5.1:cloud doesn't reliably follow the JSON schema for
+            # parameters.text — it uses varying key names (message, content,
+            # content_type, style, etc.). Strategy: try known keys first, then
+            # fall back to the longest string value in parameters, then advisory.
+            text = (
+                parameters.get("text")
+                or parameters.get("content")
+                or parameters.get("message")
+                or ""
+            )
+            if not text.strip():
+                # Last resort: find the longest string value in parameters
+                string_vals = [v for v in parameters.values() if isinstance(v, str) and len(v) > 10]
+                if string_vals:
+                    text = max(string_vals, key=len)
+                    logger.info("Brainstem: using longest parameters value as response text (key not 'text')")
+            if not text.strip():
+                logger.warning("Brainstem: no response text in parameters, falling back to advisory")
+                text = advisory
             capability = "text_chat"
             plugin_params = {
-                "text": parameters.get("text", ""),
+                "text": text or "(no response content)",
                 "metadata": {"advisory": advisory} if advisory else {},
             }
         elif decision_type == "delegate":
@@ -142,6 +162,7 @@ class Brainstem(ModuleInterface):
 
         # Route to plugin
         plugin_name = self._capability_map.get(capability)
+        logger.info("Brainstem plugin lookup: capability=%r map=%s plugin_name=%r", capability, self._capability_map, plugin_name)
         if not plugin_name:
             logger.error("No plugin supports capability: %s", capability)
             self._failed_count += 1

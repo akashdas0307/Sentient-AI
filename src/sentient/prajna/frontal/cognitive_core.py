@@ -175,6 +175,23 @@ class CognitiveCore(ModuleInterface):
         )
 
         try:
+            # Guard: if no envelope (daydream with context=None or no envelope),
+            # publish cycle events with null IDs and return early
+            if context is None or context.envelope is None:
+                logger.debug("Reasoning cycle skipped: no envelope (daydream)")
+                cycle.completed_at = time.time()
+                await self.event_bus.publish(
+                    "cognitive.cycle.complete",
+                    {
+                        "cycle_id": cycle.cycle_id,
+                        "is_daydream": is_daydream,
+                        "monologue": "",
+                        "decision_count": 0,
+                        "duration_ms": 0,
+                    },
+                )
+                return cycle
+
             # Assemble the prompt
             prompt = self._assemble_prompt(context, is_daydream=is_daydream)
 
@@ -302,7 +319,13 @@ class CognitiveCore(ModuleInterface):
         recent_summary = ""
         if self._recent_cycles:
             last = self._recent_cycles[-1]
-            recent_summary = f"Last activity: {last.assessment[:100]}"
+            assessment = last.assessment
+            if isinstance(assessment, str):
+                recent_summary = f"Last activity: {assessment[:100]}"
+            elif isinstance(assessment, dict):
+                recent_summary = f"Last activity: {str(assessment)[:100]}"
+            else:
+                recent_summary = "Last activity: (unparseable)"
         return f"Current time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n{recent_summary}"
 
     def _build_input_block(self, context: Any) -> str:
@@ -353,7 +376,15 @@ class CognitiveCore(ModuleInterface):
         try:
             return json.loads(text)
         except json.JSONDecodeError:
-            logger.warning("Failed to parse cognitive core response as JSON")
+            logger.warning("Failed to parse cognitive core response as JSON — attempting regex extraction")
+            # Fallback: find first { ... } block
+            import re
+            match = re.search(r'\{.*\}', text, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(0))
+                except json.JSONDecodeError:
+                    pass
             return {
                 "monologue": text,
                 "assessment": "(unparseable response)",

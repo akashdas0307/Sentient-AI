@@ -7,10 +7,10 @@
 ## What this is
 
 This is the foundational scaffolding for the Sentient AI Framework as specified in the companion documents:
-- `PRD.md` — Product Requirements Document
-- `ARCHITECTURE.md` — System architecture
-- `DESIGN_DECISIONS.md` — Architectural decisions and rationale
-- `CONVERSATION_SUMMARY.md` — Two-season development history
+- `doc/PRD.md` — Product Requirements Document
+- `doc/ARCHITECTURE.md` — System architecture
+- `doc/DESIGN_DECISIONS.md` — Architectural decisions and rationale
+- `doc/CONVERSATION_SUMMARY.md` — Two-season development history
 
 The MVS scope (per PRD §8.1) includes: Thalamus (chat input only), full Prajñā pipeline (simplified per module), Cognitive Core with inner monologue, World Model with conservative thresholds, four-type Memory Architecture with dual storage, three-layer Persona Manager, Brainstem (chat output only), four-stage Sleep system, Health Layers 1+2, and the System GUI.
 
@@ -39,7 +39,7 @@ This is a foundation, not a finished system. You'll need to:
 - Build out the React frontend (only a placeholder index.html exists)
 - Configure your specific LLM providers in `config/inference_gateway.yaml`
 - Write the actual identity files in `config/identity/`
-- Connect a real agent harness (Claw Code or Claude Code)
+- Connect a real agent harness (Claude Code or custom agent)
 
 Think of this as the spinal cord and brain stem of the system — the wiring that lets every module communicate. The actual cognition needs to be implemented module by module, following the plans in `ARCHITECTURE.md`.
 
@@ -102,7 +102,7 @@ Use this to track MVS implementation:
 - [x] Module interface
 - [x] Envelope format
 - [x] Inference Gateway scaffold
-- [ ] Inference Gateway with real LLM calls (litellm integration)
+- [x] Inference Gateway with real LLM calls (litellm integration)
 - [x] Configuration loading
 - [x] Lifecycle orchestrator
 - [x] Health pulse network (Layer 1)
@@ -113,7 +113,7 @@ Use this to track MVS implementation:
 - [x] Plugin base class
 - [x] Chat input plugin
 - [x] Heuristic engine (Layer 1)
-- [ ] Local LLM classifier (Layer 2)
+- [x] Local LLM classifier (Layer 2)
 - [~] Adaptive batching window
 - [~] Attention summary subscriber
 

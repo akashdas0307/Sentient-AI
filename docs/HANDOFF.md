@@ -1,63 +1,43 @@
-# Handoff: Phase 4c Recovery + Lazy Imports
+# Handoff: Phase 6 Preparation
 
 ## Current State
 
-- **Phase 4c COMPLETE** — All deliverables finished, critical RAM fix applied
-- **Branch:** `auto/phase-4c-recovery` (active, ready for PR)
-- **Total tests:** 339 passing (core/api/prajna/persona/sleep), 7 main.py tests passing (6 heavy async tests excluded from CI)
+- **Phase 5 COMPLETE** — First boot achieved, real conversation works
+- **Branch:** `auto/phase-5-first-boot` (ready for merge)
+- **Commits:** 8 on this branch
+- **Total tests:** 365 unit + 2 wetware = 367 passing (4 pre-existing test_main.py failures from heavy async tests)
 - **Ruff:** 0 errors
+- **main.py coverage:** 97% (up from 41%)
 
-## Coverage Results
+## Phase 5 Achievements
 
-| Module | Before | After | Target | Status |
-|--------|--------|-------|--------|--------|
-| api/server.py | 16% | 91.4% | ≥45% | EXCEEDED |
-| persona/identity_manager.py | 28% | 100% | ≥50% | EXCEEDED |
-| sleep/scheduler.py | 23% | 95% | ≥45% | EXCEEDED |
-| prajna/frontal/harness_adapter.py | 42% | 100% | ≥60% | EXCEEDED |
-| core/inference_gateway.py | 95% | ~95% | ≥90% | OK |
-| main.py | 32% | 41% | ≥50% | BELOW TARGET* |
+- System had its **first real conversation** via GLM-5.1:cloud, MiniMax-M2.7:cloud, Kimi-K2.5:cloud
+- Wetware smoke tests **GREEN** (D3)
+- Performance baseline measured (D6): 1.4s startup, 31.6s response, 186 MB RSS
+- 2 CRITICAL bugs fixed: fixture H0 (missing initialize), Brainstem response extraction
 
-*main.py at 41% because 6 heavy integration tests (build_and_start, run_forever) are excluded from CI runs due to RAM constraints from `importlib.reload()` loading all heavy modules.
+## Known Issues for Phase 6
 
-## Critical Fixes Applied
+1. **World Model `revision_requested` dead-ends decisions** — When the model returns this verdict, the decision is neither approved nor re-processed. Need a re-submission loop or fallback to `approved` after N revision attempts.
+2. **Episodic memory not populated between turns** — Follow-up conversations don't reference previous exchanges. MemoryArchitecture is not wired into the pipeline.
+3. **GLM-5.1:cloud JSON key variance** — Model uses unpredictable key names in `parameters` (text, content, message, content_type, style). Brainstem heuristic (longest string) works but is fragile. Prompt engineering with few-shot example recommended.
+4. **4 pre-existing test_main.py failures** — Heavy async tests timeout; new test_main_coverage.py covers same paths at 97% without the issues.
+5. **sentence_transformers first-download** — Not tested; could add 30-120s to cold startup on fresh machines.
+6. **CLAUDE.md model routing table** — Still references "GLM-4.6" instead of "GLM-5.1:cloud". RED gate — needs creator authorization to update.
 
-1. **First-boot IndexError** — `identity_manager.py:110` now handles empty `maturity_log` lists
-2. **RAM exhaustion** — Removed session-scoped event_loop fixture, added proper scheduler conftest with teardown, fixed hanging test
-3. **CI workflow** — Replaced `pytest tests/` with `bash scripts/run_tests_safe.sh --cov` (per-directory isolation)
-4. **Wetware fixture** — Loads full config from YAML instead of hardcoded URL
-5. **Config restoration** — `inference_gateway.yaml` and `system.yaml` restored from accidental deletion
-
-## Known Issues for Phase 5
-
-1. **main.py coverage below target (41% vs ≥50%)** — Need per-test conftest with module-level mocking to enable RAM-safe async test execution for `build_and_start`/`run_forever` tests
-2. **Documentation staleness** — `DOC_AUDIT_4c.md` identifies 5 stale claims in README, 4 in SETUP, 3 in HANDOFF. Fixes not yet applied.
-3. **E2E test infrastructure** — Wetware tests require running Ollama. E2e framework deferred to Phase 5.
-4. **`test_run_calls_asyncio_run` warning** — RuntimeWarning about unawaited coroutine in gc.collect(). Harmless but noisy.
-
-## Next Up: Phase 5
-
-**Goal:** Complete coverage for main.py, apply doc fixes, set up E2E infrastructure.
+## Phase 6 Suggested Focus
 
 | Focus Area | Target | Approach |
 |-----------|--------|----------|
-| main.py async tests | ≥50% | Create tests/unit/conftest.py with heavy module mocks |
-| Documentation | Fresh | Apply fixes from DOC_AUDIT_4c.md |
-| E2E tests | Framework | Set up test harness requiring Ollama |
-| Performance benchmarks | Baseline | Measure startup time, memory usage |
+| Decision re-submission | Loop on revision_requested | Add max-revision count in World Model handler |
+| Memory integration | Episodic memory between turns | Wire MemoryArchitecture into CognitiveCore context |
+| Prompt engineering | Stable JSON output from GLM | Add few-shot example to Cognitive Core prompt |
+| Full-system startup | Test with Memory + API server | Wetware test with all 12 modules |
+| CLAUDE.md model update | Fix routing table | Creator authorization required |
 
 ## Repository Status
 
-- **Branch:** `auto/phase-4c-recovery` (6 commits ahead of main)
-- **GitHub auth:** Configured — `gh` CLI available and authenticated
+- **Branch:** `auto/phase-5-first-boot` (active, ready for merge)
+- **GitHub auth:** Configured
 - **CI:** Uses `scripts/run_tests_safe.sh --cov` for per-directory isolation
-- **Pre-push hook:** `scripts/install_hooks.sh` (ruff check + pytest unit/integration)
-
-## Commits on auto/phase-4c-recovery
-
-1. `a7a548d` — chore(phase-4c): restore accidentally deleted config files
-2. `f593387` — chore(phase-4c): add lazy-import RSS verification script
-3. `200e709` — fix(persona): handle empty maturity_log on first boot
-4. `562b79f` — fix(wetware): load inference config in real_gateway fixture
-5. `712ccd0` — fix(tests): resolve RAM exhaustion from pytest event loop and scheduler task leaks
-6. `bdc5672` — fix(ci): use per-directory test runner to prevent RAM exhaustion on CI
+- **Pre-push hook:** `scripts/install_hooks.sh`

@@ -235,7 +235,15 @@ Review this decision across the 5 dimensions and produce your JSON verdict.
         try:
             return json.loads(text)
         except json.JSONDecodeError:
-            logger.warning("Failed to parse World Model review")
+            logger.warning("Failed to parse World Model review — attempting regex extraction")
+            # Fallback: find first { ... } block
+            import re
+            match = re.search(r'\{.*\}', text, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(0))
+                except json.JSONDecodeError:
+                    pass
             return {
                 "verdict": "vetoed",
                 "veto_reason": "Review response unparseable",

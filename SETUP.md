@@ -43,17 +43,15 @@ This installs:
 
 Follow https://ollama.com — install for your OS.
 
-Pull a small model for the Thalamus Layer 2 classifier:
+Pull the primary models for the Cognitive Core, World Model, and Thalamus classifier:
 
 ```bash
-ollama pull llama3.2:3b
+ollama pull glm-5.1:cloud
+ollama pull minimax-m2.7:cloud
+ollama pull kimi-k2.5:cloud
 ```
 
-Pull a more capable local model for fallback Cognitive Core operation:
-
-```bash
-ollama pull qwen2.5:7b
-```
+These are cloud-hosted models (Ollama cloud endpoint) — no local GPU required.
 
 Verify Ollama is running:
 
@@ -76,7 +74,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 GOOGLE_API_KEY=...
 ```
 
-Only Anthropic is required for MVS. Other providers are optional fallbacks.
+Ollama cloud is the primary inference path. Configure your cloud API keys for additional fallbacks:
 
 ### 6. Configure your identity files
 
@@ -133,8 +131,9 @@ The system is alive.
 In another terminal:
 
 ```bash
-# For now, open gui/index.html in a browser
-# or once the React frontend is built:
+# gui/index.html is a placeholder served by the API server at /gui
+# Open http://localhost:8000/gui in your browser
+# Once the React frontend is built (Phase 2):
 cd gui && npm run dev
 ```
 
