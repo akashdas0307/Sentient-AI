@@ -56,7 +56,7 @@ run_dir() {
     local dir="$1"
     shift
     echo "── Testing: $dir ──"
-    python -m pytest "$dir" -x -q --tb=short --ignore=tests/wetware "$@"
+    python -m pytest "$dir" -q --tb=short --ignore=tests/wetware "$@"
     local rc=$?
     if [ $rc -ne 0 ]; then
         echo "FAILED: $dir (exit $rc)"
@@ -117,7 +117,7 @@ run_cov_module() {
         *)                   test_dirs="tests/unit/" ;;
     esac
 
-    python -m pytest $test_dirs -x -q --tb=short --ignore=tests/wetware \
+    python -m pytest $test_dirs -q --tb=short --ignore=tests/wetware \
         "--cov=$module" --cov-report=term-missing "$@"
 }
 
