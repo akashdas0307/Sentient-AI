@@ -21,7 +21,6 @@ import resource
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -36,7 +35,7 @@ def _check_ollama_available():
     """Skip if Ollama is not running or model not available."""
     try:
         import urllib.request
-        resp = urllib.request.urlopen("http://localhost:11434/api/tags", timeout=5)
+        urllib.request.urlopen("http://localhost:11434/api/tags", timeout=5)
         return True
     except Exception:
         return False
@@ -284,7 +283,7 @@ class TestFullSystemWetware:
         )
 
         # Print summary
-        print(f"\n=== WETWARE TEST SUMMARY ===")
+        print("\n=== WETWARE TEST SUMMARY ===")
         print(f"Total duration: {total_duration:.1f}s")
         print(f"Peak RSS: {peak_rss:.0f} MB")
         print(f"Approved decisions: {len(approved_decisions)}")
