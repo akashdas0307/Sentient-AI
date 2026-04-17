@@ -52,4 +52,10 @@ Phase 4c recovered from Phase 4b's incomplete state: fixed the production-critic
 
 ---
 
+## Phase 5: First Boot
+
+Phase 5 achieved the project's primary milestone: the sentient framework had its **first real conversation** via live LLM calls to GLM-5.1:cloud, MiniMax-M2.7:cloud, and Kimi-K2.5:cloud through Ollama. This was the first time the system ran with real inference instead of mocks. Two CRITICAL bugs were discovered and fixed: (1) the wetware test fixture was missing `await gateway.initialize()`, causing all LLM calls to silently fail with "litellm not installed", and (2) the Brainstem was leaking World Model advisory text as chat output because GLM-5.1:cloud doesn't reliably follow the JSON schema for `parameters.text` — it uses varying key names (message, content, content_type, style). The Brainstem now uses a robust extraction heuristic: try known keys, then the longest string value, then advisory as last resort. Additionally: the CognitiveCore daydream crash (null envelope) was fixed, the Thalamus batch emission deadlock was fixed (snapshot under lock, emit without lock), main.py coverage was pushed from 41% to 97% via in-process mock tests, and documentation was updated from DOC_AUDIT_4c. Performance baseline: 1.4s cold startup, 31.6s first response latency, 186 MB peak RSS, 4 LLM calls per turn, $0 cost (local Ollama). Known limitations for Phase 6: World Model `revision_requested` verdicts dead-end decisions, episodic memory isn't populated between turns, and the GLM model's JSON key variance requires ongoing heuristic handling.
+
+---
+
 *Last updated: 2026-04-17*
