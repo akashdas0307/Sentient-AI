@@ -27,6 +27,23 @@ from sentient.core.module_interface import HealthPulse, ModuleInterface, ModuleS
 logger = logging.getLogger(__name__)
 
 
+def _strip_markdown_fences(text: str) -> str:
+    """Strip markdown code fences from LLM output before validation.
+
+    Models often wrap JSON in ```json ... ``` despite instructions not to.
+    """
+    text = text.strip()
+    if text.startswith("```"):
+        # Remove opening fence (with optional language tag)
+        lines = text.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    return text
+
+
 @dataclass
 class InferenceRequest:
     """A request for LLM inference."""
@@ -266,6 +283,8 @@ class InferenceGateway(ModuleInterface):
 
             # Post-call validation for structured output
             if request.response_format is not None:
+                # Strip markdown fences before validation — models often add them despite instructions
+                text = _strip_markdown_fences(text)
                 try:
                     request.response_format.model_validate_json(text)
                 except Exception as first_error:
@@ -286,6 +305,7 @@ class InferenceGateway(ModuleInterface):
                             timeout=request.timeout_seconds,
                         )
                         text = retry_response.choices[0].message.content or ""
+                        text = _strip_markdown_fences(text)
                         request.response_format.model_validate_json(text)
                     except Exception as retry_error:
                         # Propagate using base Exception to avoid being caught by

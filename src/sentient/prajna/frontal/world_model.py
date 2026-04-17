@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from sentient.core.event_bus import EventBus, get_event_bus
-from sentient.core.inference_gateway import InferenceGateway, InferenceRequest
+from sentient.core.inference_gateway import InferenceGateway, InferenceRequest, _strip_markdown_fences
 from sentient.core.module_interface import HealthPulse, ModuleInterface, ModuleStatus
 from sentient.prajna.frontal.schemas import WorldModelVerdict
 
@@ -237,9 +237,12 @@ class WorldModel(ModuleInterface):
 
         parsed = self._parse_review(response.text)
 
+        # Strip fences before schema validation
+        validation_text = _strip_markdown_fences(response.text)
+
         # Validate with schema, falling back to parse_review result
         try:
-            validated = WorldModelVerdict.model_validate_json(response.text)
+            validated = WorldModelVerdict.model_validate_json(validation_text)
             verdict_str = validated.verdict
             dimension_assessments = validated.dimension_assessments.model_dump()
             advisory_notes = validated.advisory_notes
