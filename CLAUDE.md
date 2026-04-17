@@ -50,7 +50,8 @@ The creator uses Ollama cloud with three models. Route work to the appropriate m
 - Changes that affect the startup sequence in `main.py`
 
 ### RED — forbidden, never do autonomously
-- Any change to `PRD.md`, `DESIGN_DECISIONS.md`, or `CLAUDE.md` itself
+- Any change to `CLAUDE.md` itself without explicit creator authorization
+- Any change to `PRD.md` or `DESIGN_DECISIONS.md`
 - `.env` files (creation, modification, or reading secrets)
 - Any file under `config/identity/` (Constitutional Core per DD-025)
 - Any `git push` to `main` or `master`
@@ -140,6 +141,41 @@ A change is "done" only when ALL of these are true:
 | Unit | `tests/unit/` | Fast, isolated, no I/O | Yes |
 | Integration | `tests/integration/` | Multi-module with mocks | Yes |
 | Wetware | `tests/wetware/` | Real LLM calls, requires Ollama | No (`pytest -m wetware`) |
+
+## RESOURCE AND PROCESS RULES
+
+### Lazy-import policy
+Heavy dependencies (chromadb, sentence_transformers, litellm, torch, transformers) MUST be imported inside the function that uses them, not at module top level. Violations caught during review are a YELLOW gate.
+
+### Pre-test RAM check (hard rule)
+Any agent running `pytest` MUST first run:
+    free -m | awk 'NR==2 {if ($7 < 4000) exit 1}'
+If this check fails, the agent aborts with status "RAM_INSUFFICIENT" and notifies the orchestrator. No ulimit workarounds, no mid-run memory tricks.
+
+### Coverage measurement
+The command `pytest --cov=sentient` across the full codebase is BANNED. Coverage runs use `scripts/coverage_per_module.sh MODULE_NAME` one module at a time, and only in the phase close-out deliverable.
+
+### Commit cadence
+Every completed deliverable gets its own commit before the next deliverable starts. Use the existing safe_push.sh. If a deliverable fails, previous commits stay on the branch.
+
+### Phase wall-clock budget
+Every phase has an absolute budget set in its prompt. At 85% of budget, orchestrator forces close-out (write PHASE_N_PROGRESS.md, commit, push) regardless of deliverable state. No open-ended runs.
+
+### Main session fix prohibition (restated)
+If main session edits any file under src/ or tests/, RED gate, stop phase immediately, no exceptions.
+
+## Resource Safety
+
+### MUST check before any test run
+1. NEVER run `pytest --cov=sentient` on all modules at once — it instruments every source file and can consume all RAM
+2. For coverage, use per-module mode: `bash scripts/run_tests_safe.sh --cov sentient.api`
+3. For quick verification (no coverage): `bash scripts/run_tests_safe.sh`
+4. Max 3 parallel agents at any time — more causes RAM exhaustion
+
+### How the safe runner works
+- Checks available RAM before running; aborts if < 25% free
+- For coverage, runs per-module instead of all-at-once to limit instrumentation overhead
+- Location: `scripts/run_tests_safe.sh`
 
 ### Pre-Push Hook Contract
 
