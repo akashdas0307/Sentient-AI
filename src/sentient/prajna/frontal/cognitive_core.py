@@ -21,6 +21,7 @@ from sentient.core.envelope import Envelope
 from sentient.core.event_bus import EventBus, get_event_bus
 from sentient.core.inference_gateway import InferenceGateway, InferenceRequest
 from sentient.core.module_interface import HealthPulse, ModuleInterface, ModuleStatus
+from sentient.prajna.frontal.schemas import CognitiveCoreResponse
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +201,7 @@ class CognitiveCore(ModuleInterface):
                 model_label="cognitive-core",
                 system_prompt=COGNITIVE_CORE_SYSTEM_PROMPT,
                 prompt=prompt,
+                response_format=CognitiveCoreResponse,
             )
             response = await self.gateway.infer(request)
 
@@ -362,7 +364,11 @@ class CognitiveCore(ModuleInterface):
         )
 
     def _parse_response(self, text: str) -> dict[str, Any]:
-        """Parse the structured JSON response."""
+        """Parse the structured JSON response.
+
+        Primary path: validate with CognitiveCoreResponse schema.
+        Fallback: regex extraction for backward compatibility.
+        """
         text = text.strip()
         # Strip markdown code fences if model added them
         if text.startswith("```"):
@@ -373,6 +379,19 @@ class CognitiveCore(ModuleInterface):
         if text.endswith("```"):
             text = text[:-3].strip()
 
+        # Primary: try schema validation
+        try:
+            validated = CognitiveCoreResponse.model_validate_json(text)
+            return {
+                "monologue": validated.monologue,
+                "assessment": validated.assessment,
+                "decisions": [d.model_dump() for d in validated.decisions],
+                "reflection": validated.reflection.model_dump(),
+            }
+        except Exception:
+            pass
+
+        # Fallback: raw JSON parse + regex extraction
         try:
             return json.loads(text)
         except json.JSONDecodeError:

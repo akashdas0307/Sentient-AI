@@ -18,6 +18,7 @@ from typing import Any
 from sentient.core.event_bus import EventBus, get_event_bus
 from sentient.core.inference_gateway import InferenceGateway, InferenceRequest
 from sentient.core.module_interface import HealthPulse, ModuleInterface, ModuleStatus
+from sentient.prajna.frontal.schemas import WorldModelVerdict
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +184,7 @@ class WorldModel(ModuleInterface):
             model_label="world-model",  # Different LLM from Cognitive Core
             system_prompt=WORLD_MODEL_SYSTEM_PROMPT,
             prompt=prompt,
+            response_format=WorldModelVerdict,
         )
         response = await self.gateway.infer(request)
 
@@ -197,15 +199,35 @@ class WorldModel(ModuleInterface):
             )
 
         parsed = self._parse_review(response.text)
+
+        # Validate with schema, falling back to parse_review result
+        try:
+            validated = WorldModelVerdict.model_validate_json(response.text)
+            verdict_str = validated.verdict
+            dimension_assessments = validated.dimension_assessments.model_dump()
+            advisory_notes = validated.advisory_notes
+            revision_guidance = validated.revision_guidance
+            veto_reason = validated.veto_reason
+            confidence = validated.confidence
+        except Exception:
+            # Fallback to parsed dict
+            verdict_str = parsed.get("verdict", "vetoed")
+            dimension_assessments = parsed.get("dimension_assessments", {})
+            advisory_notes = parsed.get("advisory_notes", "")
+            revision_guidance = parsed.get("revision_guidance", "")
+            veto_reason = parsed.get("veto_reason", "")
+            confidence = parsed.get("confidence", 0.5)
+
         return ReviewVerdict(
             cycle_id=cycle_id,
             decision=decision,
-            verdict=parsed.get("verdict", "vetoed"),
-            dimension_assessments=parsed.get("dimension_assessments", {}),
-            advisory_notes=parsed.get("advisory_notes", ""),
-            revision_guidance=parsed.get("revision_guidance", ""),
-            veto_reason=parsed.get("veto_reason", ""),
-            confidence=parsed.get("confidence", 0.5),
+            verdict=verdict_str,
+            dimension_assessments=dimension_assessments,
+            advisory_notes=advisory_notes,
+            revision_guidance=revision_guidance,
+            veto_reason=veto_reason,
+            confidence=confidence,
+            revision_count=0,  # Set programmatically, not from LLM
         )
 
     def _build_review_prompt(self, decision: dict) -> str:

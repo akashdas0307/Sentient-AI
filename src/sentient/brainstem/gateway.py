@@ -108,24 +108,37 @@ class Brainstem(ModuleInterface):
 
         # Map decision type to plugin capability
         if decision_type == "respond":
-            # GLM-5.1:cloud doesn't reliably follow the JSON schema for
-            # parameters.text — it uses varying key names (message, content,
-            # content_type, style, etc.). Strategy: try known keys first, then
-            # fall back to the longest string value in parameters, then advisory.
-            text = (
-                parameters.get("text")
-                or parameters.get("content")
-                or parameters.get("message")
-                or ""
-            )
+            # Per D1: DecisionAction schema enforces explicit `text` field.
+            # The schema-validated format has `text` at the top level.
+            # The legacy fallback format has `text` nested in `parameters`.
+            # Support both during the transition period.
+            text = decision.get("text", "")
             if not text.strip():
-                # Last resort: find the longest string value in parameters
+                # Try legacy parameters nesting
+                text = parameters.get("text", "")
+            if not text.strip():
+                # Fallback: try known variant keys (one release cycle, then remove)
+                text = (
+                    parameters.get("content")
+                    or parameters.get("message")
+                    or ""
+                )
+                if text.strip():
+                    logger.warning(
+                        "Brainstem: response text in non-canonical key — "
+                        "schema enforcement should prevent this"
+                    )
+            if not text.strip():
+                # Last resort: longest string heuristic (one release cycle, then remove)
                 string_vals = [v for v in parameters.values() if isinstance(v, str) and len(v) > 10]
                 if string_vals:
                     text = max(string_vals, key=len)
-                    logger.info("Brainstem: using longest parameters value as response text (key not 'text')")
+                    logger.warning(
+                        "Brainstem: falling back to longest-string heuristic — "
+                        "schema enforcement should prevent this"
+                    )
             if not text.strip():
-                logger.warning("Brainstem: no response text in parameters, falling back to advisory")
+                logger.warning("Brainstem: no response text, falling back to advisory")
                 text = advisory
             capability = "text_chat"
             plugin_params = {

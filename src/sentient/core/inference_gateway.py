@@ -17,7 +17,10 @@ import logging
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pydantic import BaseModel
 
 from sentient.core.module_interface import HealthPulse, ModuleInterface, ModuleStatus
 
@@ -35,6 +38,7 @@ class InferenceRequest:
     temperature: float | None = None
     timeout_seconds: float = 60.0
     metadata: dict[str, Any] = field(default_factory=dict)
+    response_format: type["BaseModel"] | None = None  # Pydantic BaseModel class for structured output
 
 
 @dataclass
@@ -208,8 +212,9 @@ class InferenceGateway(ModuleInterface):
         messages.append({"role": "user", "content": request.prompt})
 
         # Construct litellm-format model string
+        # Always use ollama_chat/ for ollama (both endpoints produce same output for non-schema calls)
         if provider == "ollama":
-            model_str = f"ollama/{model}"
+            model_str = f"ollama_chat/{model}"
             extra_kwargs = {"api_base": endpoint.get("base_url", "http://localhost:11434")}
         elif provider == "anthropic":
             model_str = f"anthropic/{model}"
@@ -220,6 +225,15 @@ class InferenceGateway(ModuleInterface):
         else:
             model_str = f"{provider}/{model}"
             extra_kwargs = {}
+
+        # Schema enforcement: when response_format is provided, use json_schema constraint
+        # and override temperature to 0 for deterministic output
+        if request.response_format is not None:
+            extra_kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"schema": request.response_format.model_json_schema()},
+            }
+            temperature = 0
 
         start = time.time()
         try:
@@ -249,6 +263,37 @@ class InferenceGateway(ModuleInterface):
             self._total_cost_usd += cost
 
             metrics.record_success(latency_ms)
+
+            # Post-call validation for structured output
+            if request.response_format is not None:
+                try:
+                    request.response_format.model_validate_json(text)
+                except Exception as first_error:
+                    # Retry once
+                    logger.warning(
+                        "First structured-output validation failed, retrying: %s",
+                        first_error,
+                    )
+                    try:
+                        retry_response = await asyncio.wait_for(
+                            self._litellm.acompletion(
+                                model=model_str,
+                                messages=messages,
+                                max_tokens=max_tokens,
+                                temperature=0,  # Always 0 for structured output
+                                **extra_kwargs,
+                            ),
+                            timeout=request.timeout_seconds,
+                        )
+                        text = retry_response.choices[0].message.content or ""
+                        request.response_format.model_validate_json(text)
+                    except Exception as retry_error:
+                        # Propagate using base Exception to avoid being caught by
+                        # the outer except(Exception) below
+                        raise Exception(
+                            f"Structured output validation failed after retry: {retry_error}"
+                        ) from retry_error
+
             return InferenceResponse(
                 text=text,
                 model_used=model,
@@ -271,6 +316,9 @@ class InferenceGateway(ModuleInterface):
                 error="timeout",
             )
         except Exception as exc:
+            # Structured output validation errors propagate to caller
+            if "Structured output validation failed" in str(exc):
+                raise
             metrics.record_failure()
             return InferenceResponse(
                 text="",

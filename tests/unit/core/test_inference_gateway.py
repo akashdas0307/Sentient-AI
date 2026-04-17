@@ -18,6 +18,7 @@ from sentient.core.inference_gateway import (
     InferenceRequest,
     _EndpointMetrics,
 )
+from sentient.prajna.frontal.schemas import CognitiveCoreResponse
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -206,7 +207,7 @@ async def test_primary_failure_fallback_success() -> None:
 
     # Verify ollama model string includes api_base
     second_call_kwargs = gw._litellm.acompletion.call_args_list[1].kwargs
-    assert second_call_kwargs["model"] == "ollama/qwen2.5:7b"
+    assert second_call_kwargs["model"] == "ollama_chat/qwen2.5:7b"
     assert second_call_kwargs["api_base"] == "http://localhost:11434"
 
 
@@ -366,7 +367,7 @@ async def test_provider_string_anthropic() -> None:
 
 @pytest.mark.asyncio
 async def test_provider_string_ollama() -> None:
-    """Ollama provider uses ollama/ prefix and passes api_base."""
+    """Ollama provider uses ollama_chat/ prefix and passes api_base."""
     gw = _make_gateway()
     gw._litellm = MagicMock()
 
@@ -386,9 +387,9 @@ async def test_provider_string_ollama() -> None:
     request = InferenceRequest(model_label="cognitive-core", prompt="test")
     await gw.infer(request)
 
-    # Second call should be to ollama
+    # Second call should be to ollama_chat
     fallback_kwargs = gw._litellm.acompletion.call_args.kwargs
-    assert fallback_kwargs["model"] == "ollama/qwen2.5:7b"
+    assert fallback_kwargs["model"] == "ollama_chat/qwen2.5:7b"
     assert fallback_kwargs["api_base"] == "http://localhost:11434"
 
 
@@ -642,3 +643,226 @@ async def test_fallback_without_fallback_config() -> None:
     assert response.text == ""
     assert response.error is not None
     assert "All endpoints failed" in response.error
+
+
+# ---------------------------------------------------------------------------
+# 8. Structured output (response_format) enforcement
+# ---------------------------------------------------------------------------
+
+
+def _mock_schema_response(text: str) -> MagicMock:
+    """Create a mock litellm completion response with valid JSON."""
+    response = MagicMock()
+    response.choices = [MagicMock()]
+    response.choices[0].message.content = text
+    response.usage.prompt_tokens = 10
+    response.usage.completion_tokens = 20
+    return response
+
+
+@pytest.mark.asyncio
+async def test_response_format_uses_ollama_chat_prefix() -> None:
+    """When response_format is provided, ollama_chat/ prefix is used."""
+    gw = _make_gateway()
+    gw._litellm = MagicMock()
+
+    valid_json = '{"monologue":"test","assessment":"ok","decisions":[],"reflection":{"confidence":0.0,"uncertainties":[],"novelty":0.5,"memory_candidates":[]}}'
+
+    # Make primary fail so ollama fallback runs (where schema enforcement applies)
+    call_count = 0
+
+    async def mock_acompletion(**kwargs: Any) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("Primary down")
+        return _mock_schema_response(valid_json)
+
+    gw._litellm.acompletion = AsyncMock(side_effect=mock_acompletion)
+    gw._litellm.completion_cost = MagicMock(return_value=0.0)
+
+    request = InferenceRequest(
+        model_label="cognitive-core",
+        prompt="test",
+        response_format=CognitiveCoreResponse,
+    )
+    response = await gw.infer(request)
+
+    assert response.error is None
+    # Should be ollama_chat/ on the fallback (ollama) endpoint
+    call_kwargs = gw._litellm.acompletion.call_args.kwargs
+    assert call_kwargs["model"] == "ollama_chat/qwen2.5:7b"
+
+
+@pytest.mark.asyncio
+async def test_response_format_passed_to_litellm() -> None:
+    """When response_format is provided, response_format dict is passed to litellm."""
+    gw = _make_gateway()
+    gw._litellm = MagicMock()
+
+    valid_json = '{"monologue":"test","assessment":"ok","decisions":[],"reflection":{"confidence":0.0,"uncertainties":[],"novelty":0.5,"memory_candidates":[]}}'
+    gw._litellm.acompletion = AsyncMock(return_value=_mock_schema_response(valid_json))
+    gw._litellm.completion_cost = MagicMock(return_value=0.0)
+
+    request = InferenceRequest(
+        model_label="cognitive-core",
+        prompt="test",
+        response_format=CognitiveCoreResponse,
+    )
+    await gw.infer(request)
+
+    call_kwargs = gw._litellm.acompletion.call_args.kwargs
+    assert "response_format" in call_kwargs
+    rf = call_kwargs["response_format"]
+    assert rf["type"] == "json_schema"
+    assert "schema" in rf["json_schema"]
+
+
+@pytest.mark.asyncio
+async def test_response_format_temperature_override() -> None:
+    """When response_format is provided, temperature is overridden to 0."""
+    gw = _make_gateway()
+    gw._litellm = MagicMock()
+
+    valid_json = '{"monologue":"test","assessment":"ok","decisions":[],"reflection":{"confidence":0.0,"uncertainties":[],"novelty":0.5,"memory_candidates":[]}}'
+    gw._litellm.acompletion = AsyncMock(return_value=_mock_schema_response(valid_json))
+    gw._litellm.completion_cost = MagicMock(return_value=0.0)
+
+    request = InferenceRequest(
+        model_label="cognitive-core",
+        prompt="test",
+        temperature=0.9,  # request-level override
+        response_format=CognitiveCoreResponse,
+    )
+    await gw.infer(request)
+
+    call_kwargs = gw._litellm.acompletion.call_args.kwargs
+    assert call_kwargs["temperature"] == 0  # forced to 0 for structured output
+
+
+@pytest.mark.asyncio
+async def test_response_format_validation_retry_once_then_raise() -> None:
+    """When first validation fails on a single-endpoint model, InferenceGateway retries once then raises."""
+    # Use single-endpoint config to isolate retry behavior (no fallback chain)
+    gw = InferenceGateway({
+        "models": {
+            "single-test": {
+                "primary": {
+                    "provider": "anthropic",
+                    "model": "claude-opus-4-7",
+                    "max_tokens": 1024,
+                    "temperature": 0.7,
+                },
+            },
+        },
+    })
+    gw._litellm = MagicMock()
+
+    invalid_json = "not valid json at all {"
+    valid_json = '{"monologue":"test","assessment":"ok","decisions":[],"reflection":{"confidence":0.0,"uncertainties":[],"novelty":0.5,"memory_candidates":[]}}'
+
+    call_count = 0
+
+    async def mock_acompletion(**kwargs: Any) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _mock_schema_response(invalid_json)
+        # Second call returns valid JSON, so retry succeeds
+        return _mock_schema_response(valid_json)
+
+    gw._litellm.acompletion = AsyncMock(side_effect=mock_acompletion)
+    gw._litellm.completion_cost = MagicMock(return_value=0.0)
+
+    request = InferenceRequest(
+        model_label="single-test",
+        prompt="test",
+        response_format=CognitiveCoreResponse,
+    )
+
+    # Should succeed because retry got valid JSON
+    response = await gw.infer(request)
+    assert response.error is None
+    assert call_count == 2
+
+    # Now test the failure path: both attempts return invalid JSON
+    call_count = 0
+
+    async def mock_acompletion_both_fail(**kwargs: Any) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        return _mock_schema_response(invalid_json)
+
+    gw._litellm.acompletion = AsyncMock(side_effect=mock_acompletion_both_fail)
+    gw._litellm.completion_cost = MagicMock(return_value=0.0)
+
+    request2 = InferenceRequest(
+        model_label="single-test",
+        prompt="test",
+        response_format=CognitiveCoreResponse,
+    )
+
+    # Should raise because second attempt also fails validation
+    with pytest.raises(Exception, match="Structured output validation failed after retry"):
+        await gw.infer(request2)
+
+    assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_response_format_validation_success_no_retry() -> None:
+    """When validation succeeds on first try, no retry happens."""
+    gw = _make_gateway()
+    gw._litellm = MagicMock()
+
+    valid_json = '{"monologue":"test","assessment":"ok","decisions":[],"reflection":{"confidence":0.0,"uncertainties":[],"novelty":0.5,"memory_candidates":[]}}'
+    gw._litellm.acompletion = AsyncMock(return_value=_mock_schema_response(valid_json))
+    gw._litellm.completion_cost = MagicMock(return_value=0.0)
+
+    request = InferenceRequest(
+        model_label="cognitive-core",
+        prompt="test",
+        response_format=CognitiveCoreResponse,
+    )
+    response = await gw.infer(request)
+
+    assert response.error is None
+    assert response.text == valid_json
+    # Only called once (no retry needed)
+    assert gw._litellm.acompletion.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_no_response_format_backward_compat() -> None:
+    """When response_format is None, behavior is unchanged (no validation, ollama_chat/ used for ollama)."""
+    gw = _make_gateway()
+    gw._litellm = MagicMock()
+
+    # Make primary fail so ollama fallback runs (to verify ollama_chat/ prefix is used)
+    call_count = 0
+
+    async def mock_acompletion(**kwargs: Any) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("Primary down")
+        return _mock_schema_response("plain text response")
+
+    gw._litellm.acompletion = AsyncMock(side_effect=mock_acompletion)
+    gw._litellm.completion_cost = MagicMock(return_value=0.0)
+
+    request = InferenceRequest(
+        model_label="cognitive-core",
+        prompt="test",
+        # No response_format
+    )
+    response = await gw.infer(request)
+
+    assert response.text == "plain text response"
+    call_kwargs = gw._litellm.acompletion.call_args.kwargs
+    # ollama_chat/ is used for all ollama calls (even without response_format)
+    assert call_kwargs["model"] == "ollama_chat/qwen2.5:7b"
+    # No response_format in call
+    assert "response_format" not in call_kwargs
+    # temperature is the endpoint default (0.7), not forced to 0
+    assert call_kwargs["temperature"] == 0.7
