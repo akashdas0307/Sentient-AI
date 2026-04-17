@@ -13,10 +13,8 @@ Runs the 3-turn wetware conversation and measures:
 Compare to Phase 5 baseline: 1.4s startup, 31.6s response, 186 MB RSS.
 """
 import asyncio
-import os
 import resource
 import shutil
-import sqlite3
 import tempfile
 import time
 from pathlib import Path
@@ -39,7 +37,6 @@ async def measure():
     from sentient.prajna.frontal.world_model import WorldModel
     from sentient.core.envelope import Envelope, SourceType, TrustLevel, Priority
 
-    rss_before = get_rss_mb()
     startup_start = time.time()
 
     reset_event_bus()
@@ -184,15 +181,15 @@ async def measure():
     print(f"RSS after startup: {rss_after_startup:.0f} MB")
     print(f"Peak RSS: {peak_rss:.0f} MB")
     print(f"Total 3-turn duration: {total_duration:.1f}s")
-    print(f"\nMemory retrieval latency (ms): {[round(l, 1) for l in retrieval_latencies]}")
+    print(f"\nMemory retrieval latency (ms): {[round(lat, 1) for lat in retrieval_latencies]}")
     print(f"Avg retrieval: {sum(retrieval_latencies)/len(retrieval_latencies):.1f} ms")
 
-    print(f"\nPer-turn metrics:")
+    print("\nPer-turn metrics:")
     for tm in turn_metrics:
         print(f"  Turn {tm['turn']}: {tm['duration_s']}s, ~{tm['llm_calls']} events, "
               f"ChromaDB +{tm['chroma_growth_bytes']}B, {tm['total_memories']} memories")
 
-    print(f"\nPhase 5 comparison:")
+    print("\nPhase 5 comparison:")
     print(f"  Startup: 1.4s → {startup_duration:.2f}s")
     print(f"  Response: 31.6s → {turn_metrics[0]['duration_s']:.1f}s (turn 1)")
     print(f"  RSS: 186 MB → {peak_rss:.0f} MB")
