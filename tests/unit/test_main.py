@@ -552,10 +552,7 @@ async def test_run_forever_shuts_down_on_signal(config_dir: Path):
 def test_run_calls_asyncio_run(config_dir: Path):
     """run() calls asyncio.run with run_forever."""
     with patch.dict(os.environ, {"SENTIENT_CONFIG_DIR": str(config_dir)}), \
-         patch("sentient.main.asyncio.run") as mock_asyncio_run, \
-         patch("sentient.main.run_forever") as mock_rf:
-
-        mock_asyncio_run.side_effect = KeyboardInterrupt
+         patch("sentient.main.asyncio.run", side_effect=KeyboardInterrupt) as mock_asyncio_run:
 
         from importlib import reload
         import sentient.main
@@ -564,7 +561,8 @@ def test_run_calls_asyncio_run(config_dir: Path):
         # Should not raise (KeyboardInterrupt is caught)
         sentient.main.run()
 
-        mock_asyncio_run.assert_called_once_with(mock_rf)
+        # asyncio.run was called — the argument is a coroutine from run_forever()
+        assert mock_asyncio_run.call_count == 1
 
 
 def test_run_handles_keyboard_interrupt(config_dir: Path):

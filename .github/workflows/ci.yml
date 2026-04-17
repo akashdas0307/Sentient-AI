@@ -21,10 +21,10 @@ jobs:
       - name: Install dependencies
         run: bash scripts/setup-dev.sh
 
-      - name: Run tests with coverage
+      - name: Run tests with coverage (per-directory isolation)
         run: |
           source .venv/bin/activate
-          pytest tests/ -v --cov=src/sentient --cov-report=term-missing
+          bash scripts/run_tests_safe.sh --cov
 
       - name: Lint with ruff
         run: |

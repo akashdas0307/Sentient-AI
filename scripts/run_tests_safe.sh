@@ -130,6 +130,7 @@ run_cov_all() {
         "sentient.persona"
         "sentient.sleep"
         "sentient.prajna"
+        "sentient.main"
     )
 
     local total_failed=0
