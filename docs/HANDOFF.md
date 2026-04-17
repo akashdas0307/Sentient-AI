@@ -1,9 +1,9 @@
-# Handoff: Phase 4c Recovery + Lazy Imports
+# Handoff: Phase 5 First-Boot Bug Fixes
 
 ## Current State
 
-- **Phase 4c COMPLETE** — All deliverables finished, critical RAM fix applied
-- **Branch:** `auto/phase-4c-recovery` (active, ready for PR)
+- **Phase 4c MERGED** — Phase 5 now in progress
+- **Branch:** `auto/phase-5-first-boot` (active)
 - **Total tests:** 339 passing (core/api/prajna/persona/sleep), 7 main.py tests passing (6 heavy async tests excluded from CI)
 - **Ruff:** 0 errors
 
@@ -31,9 +31,8 @@
 ## Known Issues for Phase 5
 
 1. **main.py coverage below target (41% vs ≥50%)** — Need per-test conftest with module-level mocking to enable RAM-safe async test execution for `build_and_start`/`run_forever` tests
-2. **Documentation staleness** — `DOC_AUDIT_4c.md` identifies 5 stale claims in README, 4 in SETUP, 3 in HANDOFF. Fixes not yet applied.
-3. **E2E test infrastructure** — Wetware tests require running Ollama. E2e framework deferred to Phase 5.
-4. **`test_run_calls_asyncio_run` warning** — RuntimeWarning about unawaited coroutine in gc.collect(). Harmless but noisy.
+2. **E2E test infrastructure** — Wetware tests require running Ollama. E2e framework deferred to later phase.
+3. **`test_run_calls_asyncio_run` warning** — RuntimeWarning about unawaited coroutine in gc.collect(). Harmless but noisy.
 
 ## Next Up: Phase 5
 
@@ -48,16 +47,7 @@
 
 ## Repository Status
 
-- **Branch:** `auto/phase-4c-recovery` (6 commits ahead of main)
+- **Branch:** `auto/phase-5-first-boot` (active)
 - **GitHub auth:** Configured — `gh` CLI available and authenticated
 - **CI:** Uses `scripts/run_tests_safe.sh --cov` for per-directory isolation
 - **Pre-push hook:** `scripts/install_hooks.sh` (ruff check + pytest unit/integration)
-
-## Commits on auto/phase-4c-recovery
-
-1. `a7a548d` — chore(phase-4c): restore accidentally deleted config files
-2. `f593387` — chore(phase-4c): add lazy-import RSS verification script
-3. `200e709` — fix(persona): handle empty maturity_log on first boot
-4. `562b79f` — fix(wetware): load inference config in real_gateway fixture
-5. `712ccd0` — fix(tests): resolve RAM exhaustion from pytest event loop and scheduler task leaks
-6. `bdc5672` — fix(ci): use per-directory test runner to prevent RAM exhaustion on CI
