@@ -508,3 +508,106 @@ def test_placeholder_gui_html_contains_ws_script(server):
     html = server._placeholder_gui_html()
     assert 'ws://${location.host}/ws' in html
     assert "Sentient" in html
+
+
+# ---------------------------------------------------------------------------
+# Frontend serving and SPA fallback
+# ---------------------------------------------------------------------------
+
+
+def test_frontend_dist_property_returns_none_when_no_dist(server, tmp_path):
+    """_frontend_dist returns None when frontend dist directory doesn't exist."""
+    # Point to a non-existent dist
+    server.config["frontend_dir"] = str(tmp_path / "nonexistent")
+    try:
+        assert server._frontend_dist is None
+    finally:
+        server.config.pop("frontend_dir", None)
+
+
+def test_frontend_dist_property_returns_path_when_dist_exists(server, tmp_path):
+    """_frontend_dist returns Path when dist directory with index.html exists."""
+    dist = tmp_path / "frontend" / "dist"
+    dist.mkdir(parents=True)
+    (dist / "index.html").write_text("<html>react app</html>")
+    server.config["frontend_dir"] = str(dist)
+    result = server._frontend_dist
+    assert result is not None
+    assert result == dist
+    # Cleanup config
+    del server.config["frontend_dir"]
+
+
+def test_root_serves_placeholder_when_no_frontend_dist(client):
+    """GET / returns placeholder HTML when no frontend dist exists."""
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "Sentient" in response.text
+
+
+def test_root_serves_react_app_when_frontend_dist_exists(server, client, tmp_path):
+    """GET / returns React index.html when frontend dist directory exists."""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html>React App</html>")
+    server.config["frontend_dir"] = str(dist)
+    try:
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "React App" in response.text
+    finally:
+        del server.config["frontend_dir"]
+
+
+def test_assets_route_returns_404_when_no_frontend_dist(client):
+    """GET /assets/... returns 404 when no frontend dist exists."""
+    response = client.get("/assets/index-abc123.js")
+    assert response.status_code == 404
+
+
+def test_assets_route_serves_file_when_frontend_dist_exists(server, client, tmp_path):
+    """GET /assets/... serves file from frontend dist when it exists."""
+    dist = tmp_path / "dist"
+    assets = dist / "assets"
+    assets.mkdir(parents=True)
+    (assets / "index-abc123.js").write_text("console.log('app');")
+    (dist / "index.html").write_text("<html>React App</html>")
+    server.config["frontend_dir"] = str(dist)
+    try:
+        response = client.get("/assets/index-abc123.js")
+        assert response.status_code == 200
+        assert "console.log" in response.text
+    finally:
+        del server.config["frontend_dir"]
+
+
+def test_spa_fallback_returns_404_when_no_frontend_dist(server, client, tmp_path):
+    """SPA fallback returns 404 when no frontend dist exists."""
+    # Point to a non-existent dist so fallback has nothing to serve
+    server.config["frontend_dir"] = str(tmp_path / "nonexistent")
+    try:
+        response = client.get("/dashboard")
+        assert response.status_code == 404
+    finally:
+        server.config.pop("frontend_dir", None)
+
+
+def test_spa_fallback_serves_index_html_when_frontend_dist_exists(server, client, tmp_path):
+    """SPA fallback serves React index.html for unknown routes."""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html>React App</html>")
+    server.config["frontend_dir"] = str(dist)
+    try:
+        response = client.get("/dashboard/settings")
+        assert response.status_code == 200
+        assert "React App" in response.text
+    finally:
+        server.config.pop("frontend_dir", None)
+
+
+def test_api_routes_not_intercepted_by_spa_fallback(client):
+    """SPA fallback does not intercept /api/ routes."""
+    response = client.get("/api/health")
+    # Should return 200 from the real endpoint, not 404 from SPA fallback
+    assert response.status_code == 200

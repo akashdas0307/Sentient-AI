@@ -99,17 +99,38 @@ class APIServer:
             allow_headers=["*"],
         )
 
+    @property
+    def _frontend_dist(self) -> Path | None:
+        """Return the frontend dist directory if it exists, else None."""
+        dist = Path(self.config.get("frontend_dir", "frontend/dist"))
+        if dist.is_dir() and (dist / "index.html").is_file():
+            return dist
+        return None
+
     def _register_routes(self) -> None:
-        # === Root — serves a minimal GUI placeholder ===
+        # === Root — serves React dashboard if built, else placeholder ===
         @self.app.get("/", response_class=HTMLResponse)
         async def root():
+            if self._frontend_dist:
+                return HTMLResponse((self._frontend_dist / "index.html").read_text())
             return self._placeholder_gui_html()
+
+        # === Frontend assets (JS, CSS, images) ===
+        @self.app.get("/assets/{path:path}")
+        async def serve_frontend_asset(path: str):
+            from fastapi.responses import FileResponse
+
+            if self._frontend_dist:
+                file_path = self._frontend_dist / "assets" / path
+                if file_path.is_file():
+                    return FileResponse(str(file_path))
+            return JSONResponse({"error": "not found"}, status_code=404)
 
         # === Static files ===
         @self.app.get("/static/{path:path}")
         async def serve_static(path: str):
-            # Delegate to static files mount (added in start() if static_dir exists)
             from fastapi.responses import FileResponse
+
             static_dir = self.config.get("static_dir", "static")
             file_path = Path(static_dir) / path
             if file_path.is_file():
@@ -228,6 +249,14 @@ class APIServer:
                         break
             finally:
                 self._ws_clients.discard(websocket)
+
+        # === SPA fallback — serve index.html for unknown non-API routes ===
+        # MUST be registered last so it doesn't shadow /api/* or /ws routes
+        @self.app.get("/{path:path}", response_class=HTMLResponse)
+        async def spa_fallback(path: str):
+            if self._frontend_dist and (self._frontend_dist / "index.html").is_file():
+                return HTMLResponse((self._frontend_dist / "index.html").read_text())
+            return JSONResponse({"error": "not found"}, status_code=404)
 
     async def _handle_ws_message(self, parsed: dict, timestamp: float) -> dict | None:
         """Handle a single WebSocket message. Returns response message or None."""
