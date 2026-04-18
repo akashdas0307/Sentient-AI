@@ -141,7 +141,7 @@ class APIServer:
             await self.chat_input.inject({
                 "text": message,
                 "timestamp": timestamp,
-                "session_id": f"turn_{turn_id}",
+                "session_id": request.get("session_id", f"turn_{turn_id}"),
                 "turn_id": turn_id,
             })
 
@@ -219,38 +219,47 @@ class APIServer:
                         data = await websocket.receive_text()
                         try:
                             parsed = json.loads(data)
-                            if parsed.get("type") == "ping":
-                                await websocket.send_json({
-                                    "type": "pong",
-                                    "timestamp": time.time(),
-                                })
-                            elif parsed.get("type") == "chat":
-                                # Forward chat message to Thalamus
-                                text = parsed.get("text", "").strip()
-                                if text:
-                                    turn_id = parsed.get("turn_id") or str(uuid.uuid4())
-                                    ts = time.time()
-                                    # Create turn record if not exists
-                                    if turn_id not in self._turn_records:
-                                        self._turn_records[turn_id] = TurnRecord(
-                                            turn_id, text, ts
-                                        )
-                                    await self.chat_input.inject({
-                                        "text": text,
-                                        "timestamp": ts,
-                                        "session_id": parsed.get("session_id", "main"),
-                                        "turn_id": turn_id,
-                                    })
-                                    await self.event_bus.publish(
-                                        "chat.input.received",
-                                        {"turn_id": turn_id, "text": text, "timestamp": ts},
-                                    )
+                            result = await self._handle_ws_message(parsed, time.time())
+                            if result:
+                                await websocket.send_json(result)
                         except json.JSONDecodeError:
                             pass
                     except WebSocketDisconnect:
                         break
             finally:
                 self._ws_clients.discard(websocket)
+
+    async def _handle_ws_message(self, parsed: dict, timestamp: float) -> dict | None:
+        """Handle a single WebSocket message. Returns response message or None."""
+        msg_type = parsed.get("type")
+
+        if msg_type == "ping":
+            return {
+                "type": "pong",
+                "timestamp": timestamp,
+            }
+
+        if msg_type == "chat":
+            # Forward chat message to Thalamus
+            text = parsed.get("text", "").strip()
+            if text:
+                turn_id = parsed.get("turn_id") or str(uuid.uuid4())
+                # Create turn record if not exists
+                if turn_id not in self._turn_records:
+                    self._turn_records[turn_id] = TurnRecord(turn_id, text, timestamp)
+                await self.chat_input.inject(
+                    {
+                        "text": text,
+                        "timestamp": timestamp,
+                        "session_id": parsed.get("session_id", "main"),
+                        "turn_id": turn_id,
+                    }
+                )
+                await self.event_bus.publish(
+                    "chat.input.received",
+                    {"turn_id": turn_id, "text": text, "timestamp": timestamp},
+                )
+        return None
 
     # === Lifecycle ===
 
@@ -395,15 +404,24 @@ class APIServer:
     async def _cleanup_turn_records(self) -> None:
         """Periodically remove expired turn records."""
         while True:
-            await asyncio.sleep(60)
-            now = time.time()
-            expired = [
-                tid
-                for tid, rec in self._turn_records.items()
-                if now - rec.started_at > self._turn_ttl_seconds
-            ]
-            for tid in expired:
-                del self._turn_records[tid]
+            try:
+                await asyncio.sleep(60)
+                self._do_cleanup_iteration()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.exception("Cleanup task error: %s", exc)
+
+    def _do_cleanup_iteration(self) -> None:
+        """Perform one iteration of turn record cleanup."""
+        now = time.time()
+        expired = [
+            tid
+            for tid, rec in self._turn_records.items()
+            if now - rec.started_at > self._turn_ttl_seconds
+        ]
+        for tid in expired:
+            del self._turn_records[tid]
 
     def _placeholder_gui_html(self) -> str:
         """Minimal HTML GUI for MVS testing.
