@@ -153,8 +153,13 @@ class TestEpisodicMemoryStorage:
         self, cognitive_core, mock_memory, mock_gateway
     ):
         """After a successful reasoning cycle, the turn is stored as episodic memory."""
+        # Use a proper mock with real attribute access instead of MagicMock
+        # to avoid infinite recursion in event bus serialization
+        from unittest.mock import PropertyMock
         envelope = MagicMock()
-        envelope.processed_content = "Hi, I'm Akash"
+        type(envelope).processed_content = PropertyMock(return_value="Hi, I'm Akash")
+        type(envelope).envelope_id = PropertyMock(return_value="test-envelope-id")
+
         context = SimpleNamespace(
             envelope=envelope,
             related_memories=[],
@@ -166,6 +171,10 @@ class TestEpisodicMemoryStorage:
         mock_response.error = None
         mock_response.text = '{"monologue":"A greeting","assessment":"First contact","decisions":[{"type":"respond","text":"Hello Akash!","rationale":"greeting","priority":"high"}],"reflection":{"confidence":0.8,"uncertainties":[],"novelty":0.7,"memory_candidates":[]}}'
         mock_gateway.infer.return_value = mock_response
+
+        # Make store return an awaitable
+        mock_memory.store = AsyncMock(return_value="test-memory-id")
+        mock_memory.retrieve_episodic = AsyncMock(return_value=[])
 
         await cognitive_core._run_reasoning_cycle(context)
 

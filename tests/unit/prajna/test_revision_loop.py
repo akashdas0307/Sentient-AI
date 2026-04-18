@@ -1,4 +1,9 @@
-"""Tests for the World Model revision loop (D3)."""
+"""Tests for the World Model revision loop (D4).
+
+After D4 extraction of Decision Arbiter, World Model ONLY publishes decision.reviewed.
+It does NOT emit decision.approved, decision.vetoed, or cognitive.reprocess.
+The Decision Arbiter handles all routing based on decision.reviewed payload.
+"""
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -53,13 +58,24 @@ def published_events(event_bus):
 
 
 class TestWorldModelRevisionLoop:
-    """Test the World Model revision loop with cap at 2 revisions."""
+    """Test World Model publishes flat decision.reviewed payload (D4 architecture).
+
+    World Model now ONLY publishes decision.reviewed. It does NOT route.
+    The Decision Arbiter subscribes to decision.reviewed and routes to:
+      - brainstem.output_approved  (verdict: approved | advisory)
+      - cognitive.revise_requested (verdict: revision_requested)
+      - cognitive.veto_handled     (verdict: vetoed)
+    """
 
     @pytest.mark.asyncio
     async def test_approved_first_pass(
         self, world_model, event_bus, mock_gateway, published_events
     ):
-        """Happy path: decision approved on first review."""
+        """Happy path: decision approved on first review.
+
+        World Model publishes decision.reviewed with verdict=approved.
+        It does NOT publish decision.approved directly.
+        """
         verdict = ReviewVerdict(
             cycle_id="test_1",
             decision={"type": "respond", "text": "Hello!"},
@@ -75,22 +91,35 @@ class TestWorldModelRevisionLoop:
                 "revision_count": 0,
             })
 
-        # Should publish decision.approved
+        # World Model publishes decision.reviewed (flat payload)
         event_types = [e["event_type"] for e in published_events]
-        assert "decision.approved" in event_types
-        # Should NOT publish cognitive.reprocess
+        assert "decision.reviewed" in event_types
+        # World Model does NOT publish routing events
+        assert "decision.approved" not in event_types
+        assert "brainstem.output_approved" not in event_types
         assert "cognitive.reprocess" not in event_types
-        # Should NOT publish decision.vetoed
+        assert "cognitive.revise_requested" not in event_types
         assert "decision.vetoed" not in event_types
+
+        # Verify the decision.reviewed payload has verdict=approved
+        reviewed_events = [
+            e for e in published_events if e["event_type"] == "decision.reviewed"
+        ]
+        assert len(reviewed_events) == 1
+        assert reviewed_events[0]["verdict"] == "approved"
 
     @pytest.mark.asyncio
     async def test_one_revision_then_approved(
         self, world_model, cognitive_core, event_bus, mock_gateway, published_events
     ):
-        """One revision requested, then approved on second pass."""
+        """One revision requested, then approved on second pass.
+
+        World Model publishes decision.reviewed with verdict=revision_requested
+        on first pass. Decision Arbiter (not World Model) would publish
+        cognitive.revise_requested to trigger the next cycle.
+        """
         decision = {"type": "respond", "text": "Hello!"}
 
-        # First call: revision_requested, second call: approved
         revision_verdict = ReviewVerdict(
             cycle_id="test_2",
             decision=decision,
@@ -123,26 +152,32 @@ class TestWorldModelRevisionLoop:
                 "revision_count": 0,
             })
 
-            # Should have published cognitive.reprocess
+            # World Model publishes decision.reviewed (not cognitive.revise_requested)
             event_types = [e["event_type"] for e in published_events]
-            assert "cognitive.reprocess" in event_types
+            assert "decision.reviewed" in event_types
+            assert "cognitive.revise_requested" not in event_types
+            assert "cognitive.reprocess" not in event_types
 
-            # Find the reprocess event and verify its payload
-            reprocess_events = [
-                e for e in published_events if e["event_type"] == "cognitive.reprocess"
+            # Verify the decision.reviewed payload has verdict=revision_requested
+            reviewed_events = [
+                e for e in published_events if e["event_type"] == "decision.reviewed"
             ]
-            assert len(reprocess_events) == 1
-            reproc_payload = reprocess_events[0]
-            assert reproc_payload["revision_count"] == 1
-            assert reproc_payload["decision"] == decision
-            assert "revision_guidance" in reproc_payload
+            assert len(reviewed_events) == 1
+            assert reviewed_events[0]["verdict"] == "revision_requested"
+            assert reviewed_events[0]["revision_guidance"] == "Make it warmer."
 
-            # Simulate Cognitive Core handling reprocess
-            # Mock at the event_bus.publish level to capture calls
+            # Simulate Cognitive Core handling cognitive.revise_requested
+            # (published by Decision Arbiter after receiving decision.reviewed)
+            revise_payload = {
+                "cycle_id": "test_2",
+                "decision": decision,
+                "revision_count": 1,
+                "revision_guidance": "Make it warmer.",
+            }
+
             with patch.object(
                 cognitive_core.event_bus, "publish"
             ) as mock_publish:
-                # Mock _parse_response to return structured data with decisions
                 with patch.object(
                     cognitive_core, "_parse_response",
                     return_value={
@@ -152,7 +187,7 @@ class TestWorldModelRevisionLoop:
                         "reflection": {},
                     }
                 ):
-                    await cognitive_core._handle_reprocess(reproc_payload)
+                    await cognitive_core._handle_revise_requested(revise_payload)
 
                 # Cognitive Core should have published decision.proposed with revision_count=1
                 publish_calls = mock_publish.call_args_list
@@ -172,15 +207,23 @@ class TestWorldModelRevisionLoop:
                 "revision_count": 1,
             })
 
-        # After second review (approved), should have decision.approved
+        # After second review (approved), should have decision.reviewed with verdict=approved
         event_types = [e["event_type"] for e in published_events]
-        assert "decision.approved" in event_types
+        # Two decision.reviewed events: first revision_requested, then approved
+        assert event_types.count("decision.reviewed") == 2
+        assert "brainstem.output_approved" not in event_types
+        assert "decision.approved" not in event_types
 
     @pytest.mark.asyncio
     async def test_cap_hit_override_to_approved(
         self, world_model, event_bus, mock_gateway, published_events
     ):
-        """After 2 revision requests, override to approved."""
+        """After 2 revision requests (cap hit), World Model publishes decision.reviewed.
+
+        Revision cap logic is now in Decision Arbiter. World Model only reviews.
+        This test verifies World Model publishes decision.reviewed with verdict=revision_requested
+        when revision_count=2. The Arbiter handles cap escalation (tested separately).
+        """
         decision = {"type": "respond", "text": "Hello!"}
 
         verdict = ReviewVerdict(
@@ -193,7 +236,7 @@ class TestWorldModelRevisionLoop:
         )
 
         with patch.object(world_model, "_review", new=AsyncMock(return_value=verdict)):
-            # revision_count=2 means this is the 3rd attempt (cap hit)
+            # revision_count=2 means this is the 3rd attempt (cap would be hit in Arbiter)
             await world_model._handle_decision({
                 "cycle_id": "test_3",
                 "decision": decision,
@@ -202,23 +245,30 @@ class TestWorldModelRevisionLoop:
 
         event_types = [e["event_type"] for e in published_events]
 
-        # Should NOT publish cognitive.reprocess (cap hit)
+        # World Model publishes decision.reviewed only
+        assert "decision.reviewed" in event_types
+        # World Model does NOT publish routing events
+        assert "cognitive.revise_requested" not in event_types
         assert "cognitive.reprocess" not in event_types
+        assert "decision.approved" not in event_types
 
-        # Should publish decision.approved with advisory notes about cap
-        assert "decision.approved" in event_types
-
-        approved_events = [
-            e for e in published_events if e["event_type"] == "decision.approved"
+        # Verify the decision.reviewed payload
+        reviewed_events = [
+            e for e in published_events if e["event_type"] == "decision.reviewed"
         ]
-        assert len(approved_events) == 1
-        assert "Revision cap exceeded" in approved_events[0]["advisory_notes"]
+        assert len(reviewed_events) == 1
+        assert reviewed_events[0]["verdict"] == "revision_requested"
+        assert reviewed_events[0]["revision_count"] == 2
 
     @pytest.mark.asyncio
     async def test_vetoed_no_loop(
         self, world_model, event_bus, mock_gateway, published_events
     ):
-        """Vetoed decision propagates without loop."""
+        """Vetoed decision: World Model publishes decision.reviewed with verdict=vetoed.
+
+        World Model does NOT publish decision.vetoed directly.
+        Decision Arbiter publishes cognitive.veto_handled.
+        """
         decision = {"type": "respond", "text": "Hello!"}
 
         verdict = ReviewVerdict(
@@ -238,20 +288,32 @@ class TestWorldModelRevisionLoop:
 
         event_types = [e["event_type"] for e in published_events]
 
-        # Should publish decision.vetoed
-        assert "decision.vetoed" in event_types
-
-        # Should NOT publish cognitive.reprocess (no loop for veto)
-        assert "cognitive.reprocess" not in event_types
-
-        # Should NOT publish decision.approved
+        # World Model publishes decision.reviewed
+        assert "decision.reviewed" in event_types
+        # World Model does NOT publish veto routing event
+        assert "cognitive.veto_handled" not in event_types
+        assert "decision.vetoed" not in event_types
+        # World Model does NOT publish any approved event
         assert "decision.approved" not in event_types
+        assert "brainstem.output_approved" not in event_types
+
+        # Verify the decision.reviewed payload
+        reviewed_events = [
+            e for e in published_events if e["event_type"] == "decision.reviewed"
+        ]
+        assert len(reviewed_events) == 1
+        assert reviewed_events[0]["verdict"] == "vetoed"
+        assert reviewed_events[0]["veto_reason"] == "Inappropriate response."
 
     @pytest.mark.asyncio
     async def test_advisory_no_loop(
         self, world_model, event_bus, mock_gateway, published_events
     ):
-        """Advisory verdict routes to approved without loop."""
+        """Advisory verdict: World Model publishes decision.reviewed with verdict=advisory.
+
+        Advisory maps to approved in Decision Arbiter (brainstem.output_approved).
+        World Model does NOT publish brainstem.output_approved directly.
+        """
         decision = {"type": "respond", "text": "Hello!"}
 
         verdict = ReviewVerdict(
@@ -271,21 +333,33 @@ class TestWorldModelRevisionLoop:
 
         event_types = [e["event_type"] for e in published_events]
 
-        # Should publish decision.approved (advisory maps to approved)
-        assert "decision.approved" in event_types
+        # World Model publishes decision.reviewed
+        assert "decision.reviewed" in event_types
+        # World Model does NOT publish brainstem.output_approved
+        assert "brainstem.output_approved" not in event_types
+        assert "decision.approved" not in event_types
+        assert "cognitive.revise_requested" not in event_types
 
-        # Should NOT publish cognitive.reprocess
-        assert "cognitive.reprocess" not in event_types
+        # Verify the decision.reviewed payload
+        reviewed_events = [
+            e for e in published_events if e["event_type"] == "decision.reviewed"
+        ]
+        assert len(reviewed_events) == 1
+        assert reviewed_events[0]["verdict"] == "advisory"
+        assert reviewed_events[0]["advisory_notes"] == "Consider being friendlier."
 
     @pytest.mark.asyncio
     async def test_revision_count_propagates_to_decision_proposed(
         self, cognitive_core, event_bus, mock_gateway, published_events
     ):
-        """Cognitive Core includes revision_count in decision.proposed during reprocess."""
+        """Cognitive Core includes revision_count in decision.proposed during revise cycle.
+
+        Uses _handle_revise_requested (not the old _handle_reprocess).
+        """
         decision = {"type": "respond", "text": "Hello!"}
 
-        # Simulate a reprocess payload
-        reprocess_payload = {
+        # Simulate a revise_requested payload from Decision Arbiter
+        revise_payload = {
             "cycle_id": "test_6",
             "decision": decision,
             "revision_count": 1,
@@ -306,7 +380,7 @@ class TestWorldModelRevisionLoop:
                     "reflection": {},
                 }
             ):
-                await cognitive_core._handle_reprocess(reprocess_payload)
+                await cognitive_core._handle_revise_requested(revise_payload)
 
             # Check what was published
             publish_calls = mock_publish.call_args_list
