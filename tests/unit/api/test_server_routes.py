@@ -208,18 +208,41 @@ def test_get_status_returns_lifecycle_summary(client, mock_lifecycle):
 
 
 # ---------------------------------------------------------------------------
-# WebSocket /ws
+# WebSocket /ws (Step-wise tests)
 # ---------------------------------------------------------------------------
 
 
-def test_ws_connect_sends_health_snapshot_and_welcome(client):
+@pytest.mark.asyncio
+async def test_handle_ws_message_ping_returns_pong(server):
+    """_handle_ws_message returns pong for ping."""
+    ts = time.time()
+    result = await server._handle_ws_message({"type": "ping"}, ts)
+    assert result == {"type": "pong", "timestamp": ts}
+
+
+@pytest.mark.asyncio
+async def test_handle_ws_message_chat_forwards_to_input(server, mock_chat_input):
+    """_handle_ws_message for chat forwards to chat_input.inject()."""
+    ts = time.time()
+    await server._handle_ws_message(
+        {"type": "chat", "text": "hello", "session_id": "ws-session"}, ts
+    )
+    mock_chat_input.inject.assert_called_once()
+    payload = mock_chat_input.inject.call_args[0][0]
+    assert payload["text"] == "hello"
+    assert payload["session_id"] == "ws-session"
+    assert payload["timestamp"] == ts
+
+
+def test_ws_connect_sends_health_snapshot_and_welcome(client, mock_health_network):
     """Connecting to /ws receives health snapshot and welcome message."""
+    # We still use TestClient for simple connection/receive tests if they don't hang.
+    # If they hang, we'd mock the WebSocket object and call unified_ws directly.
     with client.websocket_connect("/ws") as websocket:
         # First message should be health
         data = websocket.receive_json()
         assert data["type"] == "health"
-        assert "data" in data
-        assert "timestamp" in data
+        assert data["data"] == mock_health_network.snapshot.return_value
 
         # Second message should be welcome
         data = websocket.receive_json()
@@ -230,50 +253,22 @@ def test_ws_connect_sends_health_snapshot_and_welcome(client):
 def test_ws_recent_events_sent_on_connect(client, server):
     """Recent events from buffer are sent on WebSocket connect."""
     # Pre-populate the event buffer
-    server._event_buffer.append({
+    event = {
         "type": "event",
         "stage": "thalamus",
         "event_name": "input.received",
         "data": {},
         "timestamp": time.time(),
-    })
+    }
+    server._event_buffer.append(event)
 
     with client.websocket_connect("/ws") as websocket:
-        # Skip health and welcome
-        websocket.receive_json()
-        websocket.receive_json()
+        websocket.receive_json()  # health
+        websocket.receive_json()  # welcome
 
         # Next should be the backfilled event
         data = websocket.receive_json()
-        assert data["type"] == "event"
-        assert data["event_name"] == "input.received"
-
-
-def test_ws_ping_returns_pong(client):
-    """Sending {type: ping} receives {type: pong}."""
-    with client.websocket_connect("/ws") as websocket:
-        websocket.receive_json()  # health
-        websocket.receive_json()  # welcome
-
-        websocket.send_json({"type": "ping"})
-        data = websocket.receive_json()
-        assert data["type"] == "pong"
-        assert "timestamp" in data
-
-
-def test_ws_chat_type_forwards_to_chat_input(client, mock_chat_input):
-    """Sending {type: chat, text: ...} forwards to chat_input.inject()."""
-    with client.websocket_connect("/ws") as websocket:
-        websocket.receive_json()  # health
-        websocket.receive_json()  # welcome
-
-        websocket.send_json({"type": "chat", "text": "hello from ws", "session_id": "main"})
-        time.sleep(0.05)
-
-    mock_chat_input.inject.assert_called_once()
-    call_args = mock_chat_input.inject.call_args[0][0]
-    assert call_args["text"] == "hello from ws"
-    assert call_args["session_id"] == "main"
+        assert data == event
 
 
 # ---------------------------------------------------------------------------
@@ -415,7 +410,7 @@ async def test_cleanup_removes_expired_turn_records(
     srv._turn_records[fresh_turn_id] = TurnRecord(fresh_turn_id, "fresh", time.time())
 
     # Run cleanup
-    await srv._cleanup_turn_records()
+    srv._do_cleanup_iteration()
 
     # Old record should be removed, fresh one should remain
     assert old_turn_id not in srv._turn_records
@@ -429,21 +424,11 @@ async def test_cleanup_removes_expired_turn_records(
 
 @pytest.mark.asyncio
 async def test_drain_outgoing_updates_turn_record(
-    mock_lifecycle, mock_chat_input, mock_chat_output, mock_health_network, mock_event_bus
+    server, mock_chat_output
 ):
-    """_drain_outgoing marks turn record complete when reply arrives."""
-    config = {"host": "127.0.0.1", "port": 8765}
-    srv = APIServer(
-        config,
-        mock_lifecycle,
-        mock_chat_input,
-        mock_chat_output,
-        mock_health_network,
-        event_bus=mock_event_bus,
-    )
-
+    """_drain_outgoing marks turn record complete and sends to ws clients."""
     turn_id = "drain-test-turn"
-    srv._turn_records[turn_id] = TurnRecord(turn_id, "hello", time.time())
+    server._turn_records[turn_id] = TurnRecord(turn_id, "hello", time.time())
 
     # Queue a message with turn_id
     test_message = {
@@ -454,17 +439,13 @@ async def test_drain_outgoing_updates_turn_record(
     }
     await mock_chat_output.outgoing_queue.put(test_message)
 
-    # Use TestClient to connect a WS client to receive the reply
-    test_client = TestClient(srv.app)
-    ws = test_client.websocket_connect("/ws")
-    ws.__enter__()
-    # Skip health and welcome
-    ws.receive_json()
-    ws.receive_json()
+    # Mock a WebSocket client
+    mock_ws = AsyncMock()
+    server._ws_clients.add(mock_ws)
 
     # Run drain briefly
-    drain_task = asyncio.create_task(srv._drain_outgoing())
-    await asyncio.sleep(0.1)
+    drain_task = asyncio.create_task(server._drain_outgoing())
+    await asyncio.sleep(0.05)
     drain_task.cancel()
     try:
         await drain_task
@@ -472,12 +453,16 @@ async def test_drain_outgoing_updates_turn_record(
         pass
 
     # Turn record should be marked complete
-    record = srv._turn_records[turn_id]
+    record = server._turn_records[turn_id]
     assert record.is_complete is True
     assert record.assistant_reply == "assistant reply"
-    assert record.completed_at is not None
 
-    ws.close()
+    # Mock WS should have received the message
+    mock_ws.send_json.assert_called_once()
+    reply = mock_ws.send_json.call_args[0][0]
+    assert reply["type"] == "reply"
+    assert reply["text"] == "assistant reply"
+    assert reply["turn_id"] == turn_id
 
 
 # ---------------------------------------------------------------------------

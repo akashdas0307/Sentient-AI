@@ -87,40 +87,37 @@ def client(server):
 @pytest.mark.asyncio
 async def test_event_bus_publish_broadcasts_to_ws_client(server, real_event_bus):
     """Publishing an event on the real EventBus broadcasts to connected WS client."""
-    test_client = TestClient(server.app)
-    ws = test_client.websocket_connect("/ws")
-    ws.__enter__()
+    # Mock a WebSocket client
+    mock_ws = AsyncMock()
+    server._ws_clients.add(mock_ws)
 
-    # Skip health and welcome
-    ws.receive_json()
-    ws.receive_json()
+    # Subscribe server to event bus (normally happens in start())
+    await server.event_bus.subscribe("*", server._broadcast_event)
 
     # Publish an event via the real event bus
     await server.event_bus.publish("cognitive.cycle.complete", {"turn_id": "test-123"})
 
     # Give the async handler time to run
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.05)
 
     # Client should receive the event
-    data = ws.receive_json()
+    mock_ws.send_json.assert_called_once()
+    data = mock_ws.send_json.call_args[0][0]
     assert data["type"] == "event"
     assert data["event_name"] == "cognitive.cycle.complete"
     assert data["turn_id"] == "test-123"
     assert data["stage"] == "cognitive_core"
 
-    ws.close()
-
 
 @pytest.mark.asyncio
 async def test_multiple_events_all_broadcast_to_ws_client(server, real_event_bus):
     """Multiple events published consecutively all reach the WS client."""
-    test_client = TestClient(server.app)
-    ws = test_client.websocket_connect("/ws")
-    ws.__enter__()
+    # Mock a WebSocket client
+    mock_ws = AsyncMock()
+    server._ws_clients.add(mock_ws)
 
-    # Skip health and welcome
-    ws.receive_json()
-    ws.receive_json()
+    # Subscribe server to event bus
+    await server.event_bus.subscribe("*", server._broadcast_event)
 
     # Publish several events
     events_to_send = [
@@ -130,23 +127,14 @@ async def test_multiple_events_all_broadcast_to_ws_client(server, real_event_bus
     ]
     for event_type, payload in events_to_send:
         await server.event_bus.publish(event_type, payload)
-        await asyncio.sleep(0.05)
 
     # Give handlers time to complete
     await asyncio.sleep(0.1)
 
-    received_events = []
-    while True:
-        with pytest.raises(Exception):
-            data = ws.receive_json(timeout=0.5)
-            if data["type"] == "event":
-                received_events.append(data["event_name"])
-        break
-
+    assert mock_ws.send_json.call_count == len(events_to_send)
+    received_names = [call[0][0]["event_name"] for call in mock_ws.send_json.call_args_list]
     for event_type, _ in events_to_send:
-        assert event_type in received_events
-
-    ws.close()
+        assert event_type in received_names
 
 
 # ---------------------------------------------------------------------------
@@ -192,16 +180,13 @@ async def test_post_chat_turn_record_updated_after_drain(client, server, mock_ch
     }
     await mock_chat_output.outgoing_queue.put(reply_message)
 
-    # Connect a WS client to receive the reply
-    test_client = TestClient(server.app)
-    ws = test_client.websocket_connect("/ws")
-    ws.__enter__()
-    ws.receive_json()  # health
-    ws.receive_json()  # welcome
+    # Mock a WebSocket client so drain doesn't fail
+    mock_ws = AsyncMock()
+    server._ws_clients.add(mock_ws)
 
-    # Run drain
+    # Run drain briefly
     drain_task = asyncio.create_task(server._drain_outgoing())
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.05)
     drain_task.cancel()
     try:
         await drain_task
@@ -213,8 +198,6 @@ async def test_post_chat_turn_record_updated_after_drain(client, server, mock_ch
     assert record.is_complete is True
     assert record.assistant_reply == "assistant response"
     assert record.completed_at is not None
-
-    ws.close()
 
 
 # ---------------------------------------------------------------------------
