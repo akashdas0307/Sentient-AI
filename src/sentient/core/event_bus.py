@@ -9,7 +9,10 @@ Reference: DESIGN_DECISIONS.md DD-019, ARCHITECTURE.md §5
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import datetime
 import logging
+from enum import Enum
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -17,6 +20,45 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 EventHandler = Callable[[dict[str, Any]], Awaitable[None]]
+
+
+def _to_json_safe(obj: Any) -> Any:
+    """Recursively convert a Python object to JSON-safe types.
+
+    Handles dataclasses, Enums, datetime, sets, and duck-typed objects
+    with a ``to_dict`` method (e.g. Envelope).
+    """
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+
+    if isinstance(obj, dict):
+        return {k: _to_json_safe(v) for k, v in obj.items()}
+
+    if isinstance(obj, (list, tuple)):
+        return [_to_json_safe(item) for item in obj]
+
+    if isinstance(obj, set):
+        return [_to_json_safe(item) for item in obj]
+
+    if isinstance(obj, datetime.datetime):
+        return obj.isoformat()
+
+    if isinstance(obj, datetime.date):
+        return obj.isoformat()
+
+    if isinstance(obj, Enum):
+        return obj.value
+
+    if dataclasses.is_dataclass(obj):
+        return _to_json_safe(dataclasses.asdict(obj))
+
+    # Duck-type check for objects with to_dict (e.g. Envelope)
+    if hasattr(obj, "to_dict"):
+        return _to_json_safe(obj.to_dict())
+
+    # Fallback for unknown types
+    logger.warning("Non-serializable object in event bus: %s", type(obj).__name__)
+    return repr(obj)
 
 
 class EventBus:
@@ -77,6 +119,9 @@ class EventBus:
                 "sequence": self._event_count,
                 **payload,
             }
+
+        # Sanitize before any subscriber receives it
+        event_payload = _to_json_safe(event_payload)
 
         # Get subscribers (snapshot to avoid mutation issues)
         handlers = list(self._subscribers.get(event_type, []))

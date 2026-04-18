@@ -6,13 +6,17 @@ unified /ws WebSocket, event broadcasting, turn records, and cleanup.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 
-from sentient.api.server import APIServer, TurnRecord
+from sentient.api.server import APIServer, TurnRecord, _safe_send_json
+from sentient.core.envelope import Envelope, Priority, SourceType
+from sentient.prajna.frontal.world_model import ReviewVerdict
 
 
 # ---------------------------------------------------------------------------
@@ -457,9 +461,10 @@ async def test_drain_outgoing_updates_turn_record(
     assert record.is_complete is True
     assert record.assistant_reply == "assistant reply"
 
-    # Mock WS should have received the message
-    mock_ws.send_json.assert_called_once()
-    reply = mock_ws.send_json.call_args[0][0]
+    # Mock WS should have received the message via send_text (via _safe_send_json)
+    mock_ws.send_text.assert_called_once()
+    reply_json = mock_ws.send_text.call_args[0][0]
+    reply = json.loads(reply_json)
     assert reply["type"] == "reply"
     assert reply["text"] == "assistant reply"
     assert reply["turn_id"] == turn_id
@@ -718,3 +723,76 @@ def test_sleep_consolidations_module_unavailable_returns_503(client, mock_lifecy
 
     response = client.get("/api/sleep/consolidations")
     assert response.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# _safe_send_json
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_safe_send_json_with_envelope_datetime_enum():
+    """_safe_send_json serializes event with Envelope + datetime + enum via send_text."""
+    mock_ws = AsyncMock()
+
+    envelope = Envelope(
+        envelope_id="safe-send-test",
+        source_type=SourceType.CHAT,
+        plugin_name="test_plugin",
+        processed_content="hello",
+        priority=Priority.TIER_2_ELEVATED,
+    )
+
+    event = {
+        "type": "event",
+        "event_name": "test.event",
+        "data": {
+            "timestamp": datetime(2025, 6, 15, 12, 0, 0, tzinfo=timezone.utc),
+            "envelope": envelope,
+            "priority": Priority.TIER_1_IMMEDIATE,
+        },
+        "timestamp": 1718457600.0,
+    }
+
+    result = await _safe_send_json(mock_ws, event)
+
+    assert result is True
+    mock_ws.send_text.assert_called_once()
+    # Verify the sent text is valid JSON
+    sent_text = mock_ws.send_text.call_args[0][0]
+    parsed = json.loads(sent_text)
+    assert parsed["type"] == "event"
+    assert parsed["data"]["envelope"]["envelope_id"] == "safe-send-test"
+    assert parsed["data"]["envelope"]["source_type"] == "chat"
+    assert parsed["data"]["priority"] == 1  # TIER_1_IMMEDIATE
+    assert "2025-06-15" in sent_text  # datetime serialized to ISO format
+
+
+@pytest.mark.asyncio
+async def test_safe_send_json_with_review_verdict():
+    """_safe_send_json serializes event with ReviewVerdict dataclass."""
+    mock_ws = AsyncMock()
+
+    verdict = ReviewVerdict(
+        cycle_id="safe-001",
+        decision={"type": "respond", "text": "test"},
+        verdict="approved",
+        confidence=0.92,
+        revision_count=0,
+    )
+
+    event = {
+        "type": "reply",
+        "verdict": verdict,
+        "timestamp": 1718457600.0,
+    }
+
+    result = await _safe_send_json(mock_ws, event)
+
+    assert result is True
+    mock_ws.send_text.assert_called_once()
+    sent_text = mock_ws.send_text.call_args[0][0]
+    parsed = json.loads(sent_text)
+    assert parsed["verdict"]["cycle_id"] == "safe-001"
+    assert parsed["verdict"]["verdict"] == "approved"
+    assert parsed["verdict"]["confidence"] == 0.92
