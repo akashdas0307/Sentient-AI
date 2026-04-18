@@ -1,15 +1,22 @@
-"""FastAPI server — chat WebSocket + dashboard REST/WebSocket.
+"""FastAPI server — unified WebSocket + REST endpoints.
 
 Per ARCHITECTURE.md §9.3, this layer bridges the System GUI (React
-frontend) to the backend framework. Two WebSocket streams:
-  - /ws/chat         — bidirectional chat messages
-  - /ws/dashboard    — live system state (health, cognitive state, memory)
+frontend) to the backend framework. A single WebSocket endpoint `/ws`
+handles bidirectional event streaming. REST endpoints provide health,
+status, and turn tracking.
 
 REST endpoints:
-  - GET /api/health          — full health snapshot
-  - GET /api/status          — system status summary
-  - GET /api/memory/count    — memory statistics
-  - GET /api/cognitive/recent — recent reasoning cycles
+  - GET  /                      — serves SPA shell (placeholder HTML for now)
+  - GET  /static/{path}          — static assets
+  - POST /api/chat               — fire-and-forget message submission
+  - GET  /api/health             — full health snapshot
+  - GET  /api/status             — system status summary
+  - GET  /api/events/recent      — last 50 events from ring buffer
+  - GET  /api/turns/{turn_id}    — completed turn record
+  - GET  /api/memory/count       — memory statistics
+  - GET  /api/cognitive/recent   — recent reasoning cycles
+
+WebSocket /ws streams events, replies, and health snapshots.
 """
 from __future__ import annotations
 
@@ -17,18 +24,34 @@ import asyncio
 import json
 import logging
 import time
+import uuid
+from collections import deque
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sentient.core.event_bus import EventBus, get_event_bus
 
 logger = logging.getLogger(__name__)
 
 
+class TurnRecord:
+    """Tracks a single user turn from input to output."""
+
+    def __init__(self, turn_id: str, user_message: str, timestamp: float):
+        self.turn_id = turn_id
+        self.user_message = user_message
+        self.assistant_reply: str = ""
+        self.events: list[dict] = []
+        self.started_at = timestamp
+        self.completed_at: float | None = None
+        self.is_complete = False
+
+
 class APIServer:
-    """FastAPI server managing WebSocket + REST endpoints."""
+    """FastAPI server managing unified WebSocket + REST endpoints."""
 
     def __init__(
         self,
@@ -50,10 +73,19 @@ class APIServer:
         self.port = config.get("port", 8765)
 
         self.app = FastAPI(title="Sentient AI Framework", version="0.1.0-mvs")
-        self._chat_sockets: set[WebSocket] = set()
-        self._dashboard_sockets: set[WebSocket] = set()
+        self._ws_clients: set[WebSocket] = set()
         self._server_task: asyncio.Task | None = None
         self._outgoing_drain_task: asyncio.Task | None = None
+
+        # Turn tracking
+        self._turn_records: dict[str, TurnRecord] = {}
+        self._turn_ttl_seconds = 300  # 5-minute TTL for turn records
+
+        # Event ring buffer
+        self._event_buffer: deque[dict] = deque(maxlen=50)
+
+        # Cleanup task
+        self._cleanup_task: asyncio.Task | None = None
 
         self._configure_middleware()
         self._register_routes()
@@ -73,6 +105,17 @@ class APIServer:
         async def root():
             return self._placeholder_gui_html()
 
+        # === Static files ===
+        @self.app.get("/static/{path:path}")
+        async def serve_static(path: str):
+            # Delegate to static files mount (added in start() if static_dir exists)
+            from fastapi.responses import FileResponse
+            static_dir = self.config.get("static_dir", "static")
+            file_path = Path(static_dir) / path
+            if file_path.is_file():
+                return FileResponse(str(file_path))
+            return JSONResponse({"error": "not found"}, status_code=404)
+
         # === REST endpoints ===
         @self.app.get("/api/health")
         async def get_health():
@@ -81,6 +124,54 @@ class APIServer:
         @self.app.get("/api/status")
         async def get_status():
             return self.lifecycle.status_summary()
+
+        @self.app.post("/api/chat")
+        async def post_chat(request: dict) -> dict:
+            message = request.get("message", "").strip()
+            if not message:
+                return JSONResponse({"error": "message is required"}, status_code=400)
+
+            turn_id = str(uuid.uuid4())
+            timestamp = time.time()
+
+            # Create turn record
+            self._turn_records[turn_id] = TurnRecord(turn_id, message, timestamp)
+
+            # Inject into Thalamus
+            await self.chat_input.inject({
+                "text": message,
+                "timestamp": timestamp,
+                "session_id": f"turn_{turn_id}",
+                "turn_id": turn_id,
+            })
+
+            # Publish event
+            await self.event_bus.publish("chat.input.received", {
+                "turn_id": turn_id,
+                "text": message,
+                "timestamp": timestamp,
+            })
+
+            return JSONResponse({"turn_id": turn_id, "status": "accepted"}, status_code=202)
+
+        @self.app.get("/api/events/recent")
+        async def get_recent_events():
+            return list(self._event_buffer)
+
+        @self.app.get("/api/turns/{turn_id}")
+        async def get_turn(turn_id: str):
+            record = self._turn_records.get(turn_id)
+            if record is None:
+                return JSONResponse({"error": "turn not found"}, status_code=404)
+            return {
+                "turn_id": record.turn_id,
+                "user_message": record.user_message,
+                "assistant_reply": record.assistant_reply,
+                "events": record.events,
+                "started_at": record.started_at,
+                "completed_at": record.completed_at,
+                "is_complete": record.is_complete,
+            }
 
         @self.app.get("/api/memory/count")
         async def get_memory_count():
@@ -97,64 +188,81 @@ class APIServer:
                 return {"error": "cognitive core not available"}
             return cognitive.health_pulse().metrics
 
-        # === Chat WebSocket ===
-        @self.app.websocket("/ws/chat")
-        async def chat_ws(websocket: WebSocket):
+        # === Unified WebSocket /ws ===
+        @self.app.websocket("/ws")
+        async def unified_ws(websocket: WebSocket):
             await websocket.accept()
-            self._chat_sockets.add(websocket)
+            self._ws_clients.add(websocket)
             try:
-                # Send welcome frame
+                # Send health snapshot on connect
+                health = self.health_network.snapshot()
                 await websocket.send_json({
-                    "type": "system",
-                    "text": "Connected to sentient framework.",
+                    "type": "health",
+                    "data": health,
                     "timestamp": time.time(),
                 })
+
+                # Send welcome message
+                await websocket.send_json({
+                    "type": "welcome",
+                    "text": "Connected to Sentient Framework.",
+                    "timestamp": time.time(),
+                })
+
+                # Send recent events for backfill
+                for event in list(self._event_buffer):
+                    await websocket.send_json(event)
+
+                # Keep connection alive
                 while True:
-                    raw = await websocket.receive_text()
                     try:
-                        data = json.loads(raw)
-                    except json.JSONDecodeError:
-                        data = {"text": raw}
-
-                    text = data.get("text", "").strip()
-                    if text:
-                        # Forward to Thalamus via chat input plugin
-                        await self.chat_input.inject({
-                            "text": text,
-                            "timestamp": time.time(),
-                            "session_id": data.get("session_id"),
-                        })
-            except WebSocketDisconnect:
-                pass
+                        data = await websocket.receive_text()
+                        try:
+                            parsed = json.loads(data)
+                            if parsed.get("type") == "ping":
+                                await websocket.send_json({
+                                    "type": "pong",
+                                    "timestamp": time.time(),
+                                })
+                            elif parsed.get("type") == "chat":
+                                # Forward chat message to Thalamus
+                                text = parsed.get("text", "").strip()
+                                if text:
+                                    turn_id = parsed.get("turn_id") or str(uuid.uuid4())
+                                    ts = time.time()
+                                    # Create turn record if not exists
+                                    if turn_id not in self._turn_records:
+                                        self._turn_records[turn_id] = TurnRecord(
+                                            turn_id, text, ts
+                                        )
+                                    await self.chat_input.inject({
+                                        "text": text,
+                                        "timestamp": ts,
+                                        "session_id": parsed.get("session_id", "main"),
+                                        "turn_id": turn_id,
+                                    })
+                                    await self.event_bus.publish(
+                                        "chat.input.received",
+                                        {"turn_id": turn_id, "text": text, "timestamp": ts},
+                                    )
+                        except json.JSONDecodeError:
+                            pass
+                    except WebSocketDisconnect:
+                        break
             finally:
-                self._chat_sockets.discard(websocket)
-
-        # === Dashboard WebSocket ===
-        @self.app.websocket("/ws/dashboard")
-        async def dashboard_ws(websocket: WebSocket):
-            await websocket.accept()
-            self._dashboard_sockets.add(websocket)
-            try:
-                while True:
-                    # Send periodic updates
-                    await asyncio.sleep(2)
-                    snapshot = {
-                        "type": "dashboard_update",
-                        "timestamp": time.time(),
-                        "health": self.health_network.all_statuses(),
-                        "lifecycle": self.lifecycle.status_summary(),
-                    }
-                    await websocket.send_json(snapshot)
-            except WebSocketDisconnect:
-                pass
-            finally:
-                self._dashboard_sockets.discard(websocket)
+                self._ws_clients.discard(websocket)
 
     # === Lifecycle ===
 
     async def start(self) -> None:
         """Start the FastAPI server and the chat-output drain task."""
         import uvicorn
+
+        # Subscribe to all events for WS broadcasting
+        await self.event_bus.subscribe("*", self._broadcast_event)
+
+        # Start cleanup task
+        self._cleanup_task = asyncio.create_task(self._cleanup_turn_records())
 
         config = uvicorn.Config(
             app=self.app,
@@ -167,20 +275,15 @@ class APIServer:
         self._server_task = asyncio.create_task(server.serve())
         self._outgoing_drain_task = asyncio.create_task(self._drain_outgoing())
 
-        # Subscribe to cognitive events for dashboard streaming
-        await self.event_bus.subscribe(
-            "cognitive.cycle.complete", self._broadcast_cognitive_event,
-        )
-        await self.event_bus.subscribe(
-            "cognitive.daydream.start", self._broadcast_cognitive_event,
-        )
-        await self.event_bus.subscribe(
-            "cognitive.daydream.end", self._broadcast_cognitive_event,
-        )
-
         logger.info("API server started on http://%s:%d", self.host, self.port)
 
     async def shutdown(self) -> None:
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
         if self._outgoing_drain_task:
             self._outgoing_drain_task.cancel()
         if self._server_task:
@@ -195,34 +298,112 @@ class APIServer:
         while True:
             try:
                 message = await self.chat_output.outgoing_queue.get()
-                # Broadcast to all connected chat sockets
-                dead_sockets = set()
-                for socket in self._chat_sockets:
+
+                # Extract turn_id from message if present
+                turn_id = (
+                    message.get("turn_id")
+                    or message.get("session_id", "").replace("turn_", "")
+                )
+
+                # Forward to WS clients as reply
+                reply_msg = {
+                    "type": "reply",
+                    "turn_id": turn_id,
+                    "text": message.get("text", ""),
+                    "done": True,
+                    "timestamp": time.time(),
+                }
+
+                dead = set()
+                for ws in self._ws_clients:
                     try:
-                        await socket.send_json(message)
+                        await ws.send_json(reply_msg)
                     except Exception:
-                        dead_sockets.add(socket)
-                self._chat_sockets -= dead_sockets
+                        dead.add(ws)
+                self._ws_clients -= dead
+
+                # Update turn record
+                if turn_id and turn_id in self._turn_records:
+                    record = self._turn_records[turn_id]
+                    record.assistant_reply = message.get("text", "")
+                    record.completed_at = time.time()
+                    record.is_complete = True
+
             except asyncio.CancelledError:
                 break
             except Exception as exc:
                 logger.exception("Chat output drain error: %s", exc)
 
-    async def _broadcast_cognitive_event(self, payload: dict[str, Any]) -> None:
-        """Send cognitive events to dashboard sockets."""
-        event = {
-            "type": "cognitive_event",
-            "event_type": payload.get("event_type"),
+    async def _broadcast_event(self, payload: dict[str, Any]) -> None:
+        """Broadcast any event to all WS clients and store in ring buffer."""
+        event_name = payload.get("event_type", "unknown")
+        turn_id = payload.get("turn_id")
+        timestamp = payload.get("timestamp", time.time())
+
+        # Determine stage from event prefix
+        stage = self._map_event_to_stage(event_name)
+
+        event_msg = {
+            "type": "event",
+            "stage": stage,
+            "event_name": event_name,
             "data": payload,
-            "timestamp": time.time(),
+            "turn_id": turn_id,
+            "timestamp": timestamp,
         }
+
+        # Store in ring buffer
+        self._event_buffer.append(event_msg)
+
+        # Broadcast to all WS clients
         dead = set()
-        for socket in self._dashboard_sockets:
+        for ws in self._ws_clients:
             try:
-                await socket.send_json(event)
+                await ws.send_json(event_msg)
             except Exception:
-                dead.add(socket)
-        self._dashboard_sockets -= dead
+                dead.add(ws)
+        self._ws_clients -= dead
+
+        # Track in turn record if applicable
+        if turn_id and turn_id in self._turn_records:
+            self._turn_records[turn_id].events.append(event_msg)
+
+    def _map_event_to_stage(self, event_name: str) -> str:
+        """Map event name prefix to human-readable stage."""
+        prefix_map = {
+            "input": "thalamus",
+            "thalamus": "thalamus",
+            "checkpost": "checkpost",
+            "queue": "queue_zone",
+            "tlp": "tlp",
+            "cognitive": "cognitive_core",
+            "decision": "world_model",
+            "action": "brainstem",
+            "memory": "memory",
+            "sleep": "sleep",
+            "health": "health",
+            "attention": "frontal",
+            "chat": "chat",
+            "lifecycle": "lifecycle",
+            "harness": "harness",
+        }
+        for prefix, stage in prefix_map.items():
+            if event_name.startswith(prefix):
+                return stage
+        return "system"
+
+    async def _cleanup_turn_records(self) -> None:
+        """Periodically remove expired turn records."""
+        while True:
+            await asyncio.sleep(60)
+            now = time.time()
+            expired = [
+                tid
+                for tid, rec in self._turn_records.items()
+                if now - rec.started_at > self._turn_ttl_seconds
+            ]
+            for tid in expired:
+                del self._turn_records[tid]
 
     def _placeholder_gui_html(self) -> str:
         """Minimal HTML GUI for MVS testing.
@@ -284,28 +465,48 @@ const input = document.getElementById('input');
 const healthList = document.getElementById('health-list');
 const eventsBox = document.getElementById('events');
 
-const chatWs = new WebSocket(`ws://${location.host}/ws/chat`);
-const dashWs = new WebSocket(`ws://${location.host}/ws/dashboard`);
+let ws;
+let reconnectAttempts = 0;
+const maxRetries = 5;
 
-chatWs.onmessage = (e) => {
-  const msg = JSON.parse(e.data);
-  addMsg(msg.sender || msg.type, msg.text, msg.timestamp);
-};
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
 
-dashWs.onmessage = (e) => {
-  const msg = JSON.parse(e.data);
-  if (msg.type === 'dashboard_update') {
-    renderHealth(msg.health);
-  } else if (msg.type === 'cognitive_event') {
-    const line = `[${new Date().toLocaleTimeString()}] ${msg.event_type}: ` +
-                 `${JSON.stringify(msg.data).slice(0, 200)}\\n`;
-    eventsBox.textContent = line + eventsBox.textContent.slice(0, 5000);
-  }
-};
+  ws.onopen = () => {
+    reconnectAttempts = 0;
+  };
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'health') {
+      renderHealth(msg.data);
+    } else if (msg.type === 'reply') {
+      addMsg('sentient', msg.text, msg.timestamp);
+    } else if (msg.type === 'event') {
+      const line = `[${new Date().toLocaleTimeString()}] ${msg.event_name}: ` +
+                   `${JSON.stringify(msg.data).slice(0, 200)}\n`;
+      eventsBox.textContent = line + eventsBox.textContent.slice(0, 5000);
+    }
+  };
+
+  ws.onclose = () => {
+    if (reconnectAttempts < maxRetries) {
+      reconnectAttempts++;
+      const delay = Math.pow(2, reconnectAttempts) * 1000;
+      setTimeout(connect, delay);
+    }
+  };
+
+  ws.onerror = (err) => {
+    console.error('WS error', err);
+  };
+}
+
+connect();
 
 function renderHealth(statuses) {
-  healthList.innerHTML = Object.entries(statuses).map(([name, status]) =>
-    `<div class="module-row"><span class="dot ${status}"></span>${name} (${status})</div>`
+  healthList.innerHTML = Object.entries(statuses).map(([name, data]) =>
+    `<div class="module-row"><span class="dot ${data.status}"></span>${name} (${data.status})</div>`
   ).join('');
 }
 
@@ -319,9 +520,9 @@ function addMsg(sender, text, ts) {
 
 function send() {
   const text = input.value.trim();
-  if (!text) return;
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
   addMsg('user', text, Date.now() / 1000);
-  chatWs.send(JSON.stringify({ text, session_id: 'main' }));
+  ws.send(JSON.stringify({ type: 'chat', text, session_id: 'main' }));
   input.value = '';
 }
 
