@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -162,13 +163,14 @@ class CognitiveCore(ModuleInterface):
         self._recent_cycles: list[ReasoningCycle] = []
         self._attention_summary_task: asyncio.Task | None = None
         self._current_revision_count = 0
+        self._current_turn_id: str | None = None
 
     # === Lifecycle ===
 
     async def initialize(self) -> None:
         await self.event_bus.subscribe("tlp.enriched", self._handle_enriched)
-        await self.event_bus.subscribe("decision.reviewed", self._handle_review_result)
-        await self.event_bus.subscribe("cognitive.reprocess", self._handle_reprocess)
+        await self.event_bus.subscribe("cognitive.revise_requested", self._handle_revise_requested)
+        await self.event_bus.subscribe("cognitive.veto_handled", self._handle_veto)
         logger.info("Cognitive Core initialized")
 
     async def start(self) -> None:
@@ -191,6 +193,9 @@ class CognitiveCore(ModuleInterface):
 
         # Save current state if we're in the middle of a daydream
         await self._maybe_save_state()
+
+        # Generate turn_id for this input (stable across all revision cycles)
+        self._current_turn_id = str(uuid.uuid4())
 
         await self._run_reasoning_cycle(context)
 
@@ -263,6 +268,7 @@ class CognitiveCore(ModuleInterface):
                     "decision.proposed",
                     {
                         "cycle_id": cycle.cycle_id,
+                        "turn_id": self._current_turn_id,
                         "decision": decision,
                         "context_envelope_id": (
                             context.envelope.envelope_id if context.envelope else None
@@ -597,26 +603,35 @@ class CognitiveCore(ModuleInterface):
 
     # === Decision review handling ===
 
-    async def _handle_review_result(self, payload: dict[str, Any]) -> None:
-        """Receive World Model review of a proposed decision."""
-        # MVS: decisions flow to Brainstem after review (handled by world_model.py)
-        pass
+    async def _handle_veto(self, payload: dict[str, Any]) -> None:
+        """Receive notification that a decision was vetoed and a fallback response was generated."""
+        turn_id = payload.get("turn_id", "unknown")
+        fallback_response = payload.get("fallback_response", "")
+        logger.info(
+            "Cognitive Core received veto notification (turn=%s): fallback=%r",
+            turn_id, fallback_response,
+        )
+        # The veto is handled by the Decision Arbiter producing a fallback.
+        # Cognitive Core logs it but does not re-process (the fallback goes to Brainstem).
 
-    async def _handle_reprocess(self, payload: dict[str, Any]) -> None:
+    async def _handle_revise_requested(self, payload: dict[str, Any]) -> None:
         """Re-process a decision after World Model requested revision."""
         from types import SimpleNamespace
 
         revision_count = payload.get("revision_count", 1)
         revision_guidance = payload.get("revision_guidance", "")
         cycle_id = payload.get("cycle_id", "unknown")
+        turn_id = payload.get("turn_id", cycle_id)
+        max_revisions = payload.get("max_revisions", 2)
 
         logger.info(
-            "Cognitive Core reprocessing (cycle=%s, revision=%d)",
-            cycle_id, revision_count,
+            "Cognitive Core reprocessing (turn=%s, cycle=%s, revision=%d/%d)",
+            turn_id, cycle_id, revision_count, max_revisions,
         )
 
         # Set revision count so it propagates into decision.proposed
         self._current_revision_count = revision_count
+        self._current_turn_id = turn_id
 
         # Build a minimal context with revision feedback as an envelope
         from sentient.core.envelope import Envelope, SourceType, TrustLevel, Priority
@@ -624,12 +639,13 @@ class CognitiveCore(ModuleInterface):
         feedback_envelope = Envelope(
             source_type=SourceType.INTERNAL_WORLD_MODEL,
             plugin_name="world_model",
-            processed_content=f"World Model revision feedback (attempt {revision_count}/2): {revision_guidance}",
+            processed_content=f"World Model revision feedback (attempt {revision_count}/{max_revisions}): {revision_guidance}",
             priority=Priority.TIER_2_ELEVATED,
             trust_level=TrustLevel.SYSTEM,
             metadata={
                 "revision_count": revision_count,
                 "revision_guidance": revision_guidance,
+                "turn_id": turn_id,
             },
         )
 

@@ -21,6 +21,7 @@ from sentient.prajna.queue_zone import QueueZone
 from sentient.prajna.temporal_limbic import TemporalLimbicProcessor
 from sentient.prajna.frontal.cognitive_core import CognitiveCore
 from sentient.prajna.frontal.world_model import WorldModel
+from sentient.prajna.frontal.decision_arbiter import DecisionArbiter
 from sentient.brainstem.gateway import Brainstem
 from sentient.brainstem.plugins.chat_output import ChatOutputPlugin
 
@@ -111,7 +112,7 @@ async def test_full_pipeline_with_mocks(bus, gateway, memory, persona):
     event_types = [
         "input.classified", "checkpost.tagged", "input.delivered",
         "tlp.enriched", "cognitive.cycle.start", "decision.proposed",
-        "decision.approved",
+        "brainstem.output_approved",
     ]
     events = {k: [] for k in event_types}
 
@@ -127,10 +128,11 @@ async def test_full_pipeline_with_mocks(bus, gateway, memory, persona):
     tlp = TemporalLimbicProcessor({}, gateway, memory, bus)
     cognitive = CognitiveCore({}, gateway, persona=persona, memory=memory, event_bus=bus)
     world_model = WorldModel({}, gateway, persona=persona, event_bus=bus)
+    decision_arbiter = DecisionArbiter({}, bus)
     brainstem = Brainstem({}, bus)
     chat_output = ChatOutputPlugin()
 
-    for mod in [thalamus, checkpost, queue_zone, tlp, cognitive, world_model, brainstem]:
+    for mod in [thalamus, checkpost, queue_zone, tlp, cognitive, world_model, decision_arbiter, brainstem]:
         lifecycle.register(mod)
 
     await lifecycle.startup()
@@ -150,7 +152,7 @@ async def test_full_pipeline_with_mocks(bus, gateway, memory, persona):
     assert len(events["tlp.enriched"]) >= 1, "TLP did not enrich context"
     assert len(events["cognitive.cycle.start"]) >= 1, "CognitiveCore did not start cycle"
     assert len(events["decision.proposed"]) >= 1, "CognitiveCore did not propose decision"
-    assert len(events["decision.approved"]) >= 1, "WorldModel did not approve decision"
+    assert len(events["brainstem.output_approved"]) >= 1, "Decision Arbiter did not approve decision"
 
     # Verify message reached chat output
     output_messages = []
@@ -206,30 +208,35 @@ async def test_queue_zone_prioritization(bus):
 
 @pytest.mark.asyncio
 async def test_world_model_veto_behavior(bus):
-    """Test that WorldModel can veto a decision."""
+    """Test that WorldModel can veto a decision (via Decision Arbiter handling)."""
     vetoed_events = []
 
     async def track_veto(payload):
         vetoed_events.append(payload)
 
-    await bus.subscribe("decision.vetoed", track_veto)
+    await bus.subscribe("cognitive.veto_handled", track_veto)
 
     from tests.conftest import VetoingInferenceGateway
     gateway = VetoingInferenceGateway()
     world_model = WorldModel({}, gateway, None, bus)
+    decision_arbiter = DecisionArbiter({}, bus)
 
     await world_model.initialize()
     await world_model.start()
+    await decision_arbiter.initialize()
+    await decision_arbiter.start()
 
     await bus.publish("decision.proposed", {
         "cycle_id": "test-cycle",
-        "decision": {"type": "respond", "parameters": {"text": "bad"}, "rationale": "test", "priority": "high"},
+        "turn_id": "test-turn",
+        "decision": {"type": "respond", "text": "bad", "rationale": "test", "priority": "high"},
     })
     await asyncio.sleep(0.3)
 
     assert len(vetoed_events) >= 1
-    assert vetoed_events[0]["reason"] is not None
+    assert vetoed_events[0]["veto_reason"] is not None
 
+    await decision_arbiter.shutdown()
     await world_model.shutdown()
 
 

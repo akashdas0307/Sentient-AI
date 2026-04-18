@@ -74,11 +74,11 @@ class EventBus:
       - cognitive.cycle.complete  — Cognitive Core finished a cycle
       - cognitive.daydream.start  — Daydream session began
       - cognitive.daydream.end    — Daydream session ended
-      - cognitive.reprocess       — World Model requested revision, routing back to Cognitive Core
+      - cognitive.revise_requested — Decision Arbiter routed a revision back to Cognitive Core
+      - cognitive.veto_handled    — Decision Arbiter handled a veto and produced fallback
       - decision.proposed         — Cognitive Core proposed a decision
-      - decision.reviewed         — World Model reviewed a decision
-      - decision.approved         — Decision approved for execution
-      - decision.vetoed           — Decision vetoed by World Model
+      - decision.reviewed         — World Model reviewed a decision (flat payload, no dataclass)
+      - brainstem.output_approved — Decision Arbiter approved a decision for Brainstem execution
       - action.executed           — Brainstem completed an action
       - memory.candidate          — Memory write candidate from Cognitive Core
       - memory.stored             — Memory successfully stored
@@ -90,6 +90,7 @@ class EventBus:
       - sleep.wake                — System woke from sleep
       - attention.summary.update  — Frontal Processor published attention summary
       - eal.environment.change    — EAL detected environmental change
+      - decision_arbiter.veto    — Telemetry: Decision Arbiter handled a veto
     """
 
     def __init__(self) -> None:
