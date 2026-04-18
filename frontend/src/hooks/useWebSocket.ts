@@ -1,16 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { WSMessage, HealthSnapshot, EventMessage, TurnRecord } from '../types';
+import { useEffect, useCallback, useRef } from 'react';
+import { useSentientStore } from '../store/useSentientStore';
+import type { WSMessage } from '../types';
+
+const MAX_RETRIES = 10;
 
 export const useWebSocket = (url: string) => {
-  const [messages, setMessages] = useState<(WSMessage | EventMessage)[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
-  const [healthSnapshot, setHealthSnapshot] = useState<HealthSnapshot | null>(null);
-  const [lastTurn, setLastTurn] = useState<TurnRecord | null>(null);
-
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number>(0);
   const retryCountRef = useRef<number>(0);
-  const MAX_RETRIES = 5;
+
+  const setConnected = useSentientStore((s) => s.setConnected);
 
   const connect = useCallback(() => {
     if (socketRef.current?.readyState === WebSocket.OPEN) return;
@@ -23,8 +22,7 @@ export const useWebSocket = (url: string) => {
     socketRef.current = socket;
 
     socket.onopen = () => {
-      console.log('WebSocket connected');
-      setIsConnected(true);
+      setConnected(true);
       retryCountRef.current = 0;
     };
 
@@ -32,28 +30,39 @@ export const useWebSocket = (url: string) => {
       try {
         const message: WSMessage = JSON.parse(event.data);
 
+        // Always add to message stream
+        useSentientStore.getState().addMessage(message);
+
         switch (message.type) {
-          case 'health':
-            if (message.health) setHealthSnapshot(message.health);
-            break;
           case 'event':
-            if (message.event) setMessages((prev) => [...prev.slice(-49), message.event!]);
+            // Events are already added to message stream above
+            break;
+          case 'health':
+            useSentientStore.getState().setHealthSnapshot(message.health || (message as any).data);
             break;
           case 'reply':
-            if (message.turn) {
-              setLastTurn(message.turn);
-              setMessages((prev) => [...prev, {
-                type: 'event',
-                stage: 'reply',
-                event_name: 'assistant_reply',
-                data: { text: message.turn?.assistant_reply },
-                timestamp: Date.now(),
-                turn_id: message.turn?.turn_id || null
-              } as EventMessage]);
-            }
+            const turn = message.turn || {
+              turn_id: (message as any).turn_id || '',
+              user_message: '',
+              assistant_reply: (message as any).text || '',
+              events: [],
+              started_at: 0,
+              completed_at: Date.now() / 1000,
+              is_complete: true,
+            };
+            useSentientStore.getState().setLastTurn(turn);
             break;
           case 'welcome':
-            console.log('Welcome from Sentient AI');
+            // Fetch system status on connect
+            fetch('/api/status')
+              .then((r) => r.json())
+              .then((data) => useSentientStore.getState().setSystemStatus(data))
+              .catch(() => {});
+            // Fetch memory stats on connect
+            fetch('/api/memory/count')
+              .then((r) => r.json())
+              .then((data) => useSentientStore.getState().setMemoryStats(data))
+              .catch(() => {});
             break;
         }
       } catch (err) {
@@ -62,7 +71,7 @@ export const useWebSocket = (url: string) => {
     };
 
     socket.onclose = () => {
-      setIsConnected(false);
+      setConnected(false);
       if (retryCountRef.current < MAX_RETRIES) {
         const delay = Math.min(1000 * Math.pow(2, retryCountRef.current), 30000);
         reconnectTimeoutRef.current = window.setTimeout(() => {
@@ -72,18 +81,25 @@ export const useWebSocket = (url: string) => {
       }
     };
 
-    socket.onerror = (err) => {
-      console.error('WebSocket error', err);
+    socket.onerror = () => {
       socket.close();
     };
-  }, [url]);
+  }, [url, setConnected]);
 
   const sendChat = useCallback((text: string, sessionId: string = 'default') => {
+    // Optimistically add user message to store for persistence
+    useSentientStore.getState().addMessage({
+      type: 'reply', // Using reply type but with user flag or just filtering later
+      timestamp: Date.now(),
+      text: text,
+      payload: { sender: 'user' }
+    });
+
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({
         type: 'chat',
         text,
-        session_id: sessionId
+        session_id: sessionId,
       }));
       return true;
     }
@@ -98,5 +114,5 @@ export const useWebSocket = (url: string) => {
     };
   }, [connect]);
 
-  return { messages, sendChat, isConnected, healthSnapshot, lastTurn };
+  return { sendChat };
 };

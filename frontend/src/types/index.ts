@@ -1,3 +1,34 @@
+export interface ModuleHealth {
+  name: string;
+  status: string;
+  pulse_count: number;
+  latest_metrics: Record<string, any>;
+}
+
+export interface MemoryEntry {
+  id: string;
+  type: string;
+  content: string;
+  importance: number;
+  confidence: number;
+  created_at: number;
+  tags: string[];
+}
+
+export interface ConsolidationLog {
+  id: string;
+  scope: string;
+  consolidated_at: number;
+  source_count: number;
+  summary: string;
+}
+
+export interface SleepState {
+  stage: string;
+  duration: number;
+  cycle_count: number;
+}
+
 export interface EventMessage {
   type: "event";
   stage: string;
@@ -33,9 +64,12 @@ export interface WSMessage {
   data?: any;
   payload?: any; // Some routes use payload, some use data
   health?: HealthSnapshot;
-  event?: EventMessage;
   turn?: TurnRecord;
   text?: string;
+  // Event fields at top level
+  stage?: string;
+  event_name?: string;
+  turn_id?: string | null;
 }
 
 export interface SystemStatus {
@@ -47,4 +81,5 @@ export interface SystemStatus {
 
 export interface MemoryStats {
   count: number;
+  total_memories?: number;
 }

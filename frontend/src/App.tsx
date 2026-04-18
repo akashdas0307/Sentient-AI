@@ -1,43 +1,41 @@
 import React from 'react';
+import { Routes, Route } from 'react-router';
 import { DashboardLayout } from './layouts/DashboardLayout';
-import { ChatPanel } from './components/ChatPanel';
-import { HealthPanel } from './components/HealthPanel';
-import { EventsPanel } from './components/EventsPanel';
-import { StatusPanel } from './components/StatusPanel';
-import { MemoryPanel } from './components/MemoryPanel';
+import { ChatPage } from './pages/ChatPage';
+import { ModulesPage } from './pages/ModulesPage';
+import { MemoryPage } from './pages/MemoryPage';
+import { MemoryGraphPage } from './pages/MemoryGraphPage';
+import { SleepPage } from './pages/SleepPage';
+import { EventsPage } from './pages/EventsPage';
 import { useWebSocket } from './hooks/useWebSocket';
 
 const App: React.FC = () => {
-  const { messages, sendChat, healthSnapshot } = useWebSocket('/ws');
+  const { sendChat } = useWebSocket('/ws');
 
   const handleSendMessage = (text: string) => {
     const success = sendChat(text);
     if (!success) {
-      console.warn('WS not connected, falling back to REST API');
       fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, session_id: 'default' })
-      }).catch(err => console.error('REST fallback failed', err));
+        body: JSON.stringify({ text, session_id: 'default' }),
+      }).catch((err) => console.error('REST fallback failed', err));
     }
   };
 
   return (
-    <DashboardLayout
-      rightPanel={
-        <>
-          <StatusPanel />
-          <MemoryPanel />
-          <HealthPanel snapshot={healthSnapshot} />
-          <EventsPanel events={messages as any} />
-        </>
-      }
-    >
-      <ChatPanel
-        onSendMessage={handleSendMessage}
-        messages={messages}
-      />
-    </DashboardLayout>
+    <div className="dark h-screen w-full">
+      <Routes>
+        <Route element={<DashboardLayout />}>
+          <Route index element={<ChatPage onSendMessage={handleSendMessage} />} />
+          <Route path="modules" element={<ModulesPage />} />
+          <Route path="memory" element={<MemoryPage />} />
+          <Route path="graph" element={<MemoryGraphPage />} />
+          <Route path="sleep" element={<SleepPage />} />
+          <Route path="events" element={<EventsPage />} />
+        </Route>
+      </Routes>
+    </div>
   );
 };
 

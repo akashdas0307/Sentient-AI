@@ -611,3 +611,110 @@ def test_api_routes_not_intercepted_by_spa_fallback(client):
     response = client.get("/api/health")
     # Should return 200 from the real endpoint, not 404 from SPA fallback
     assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# New API routes (memory, sleep)
+# ---------------------------------------------------------------------------
+
+
+def test_search_memory_happy_path(client, mock_lifecycle):
+    """GET /api/memory/search returns search results."""
+    mock_memory = MagicMock()
+    mock_memory.retrieve = AsyncMock(return_value=[{"id": "mem1", "content": "test", "type": "episodic"}])
+    mock_lifecycle.get_module.side_effect = lambda name: mock_memory if name == "memory" else None
+
+    response = client.get("/api/memory/search", params={"q": "test", "limit": 5})
+    assert response.status_code == 200
+    data = response.json()
+    assert "entries" in data
+    assert data["entries"] == [{"id": "mem1", "content": "test", "type": "episodic"}]
+    mock_memory.retrieve.assert_called_once_with(query="test", limit=5)
+
+
+def test_search_memory_missing_q_returns_400(client, mock_lifecycle):
+    """GET /api/memory/search returns 400 if 'q' is missing."""
+    mock_memory = MagicMock()
+    mock_lifecycle.get_module.return_value = mock_memory
+
+    response = client.get("/api/memory/search")
+    assert response.status_code == 400
+    assert "query parameter 'q' is required" in response.json()["error"]
+
+
+def test_search_memory_module_unavailable_returns_503(client, mock_lifecycle):
+    """GET /api/memory/search returns 503 if memory module is missing."""
+    mock_lifecycle.get_module.return_value = None
+
+    response = client.get("/api/memory/search", params={"q": "test"})
+    assert response.status_code == 503
+    assert "memory module not available" in response.json()["error"]
+
+
+def test_recent_memory_happy_path(client, mock_lifecycle):
+    """GET /api/memory/recent returns recent entries."""
+    mock_memory = MagicMock()
+    mock_memory.retrieve = AsyncMock(return_value=[{"id": "mem1", "content": "test"}])
+    mock_lifecycle.get_module.side_effect = lambda name: mock_memory if name == "memory" else None
+
+    response = client.get("/api/memory/recent", params={"limit": 10})
+    assert response.status_code == 200
+    data = response.json()
+    assert "entries" in data
+    assert data["entries"] == [{"id": "mem1", "content": "test"}]
+    mock_memory.retrieve.assert_called_once_with(query="", limit=10)
+
+
+def test_recent_memory_module_unavailable_returns_503(client, mock_lifecycle):
+    """GET /api/memory/recent returns 503 if memory module is missing."""
+    mock_lifecycle.get_module.return_value = None
+
+    response = client.get("/api/memory/recent")
+    assert response.status_code == 503
+
+
+def test_sleep_status_happy_path(client, mock_lifecycle):
+    """GET /api/sleep/status returns scheduler metrics."""
+    mock_scheduler = MagicMock()
+    mock_scheduler.health_pulse.return_value.metrics = {
+        "current_stage": "awake",
+        "sleep_cycle_count": 5
+    }
+    mock_lifecycle.get_module.side_effect = lambda name: mock_scheduler if name == "sleep_scheduler" else None
+
+    response = client.get("/api/sleep/status")
+    assert response.status_code == 200
+    assert response.json() == mock_scheduler.health_pulse.return_value.metrics
+
+
+def test_sleep_status_module_unavailable_returns_503(client, mock_lifecycle):
+    """GET /api/sleep/status returns 503 if scheduler is missing."""
+    mock_lifecycle.get_module.return_value = None
+
+    response = client.get("/api/sleep/status")
+    assert response.status_code == 503
+
+
+def test_sleep_consolidations_happy_path(client, mock_lifecycle):
+    """GET /api/sleep/consolidations returns consolidation metadata."""
+    mock_scheduler = MagicMock()
+    mock_scheduler.health_pulse.return_value.metrics = {
+        "current_stage": "consolidating",
+        "sleep_cycle_count": 3
+    }
+    mock_lifecycle.get_module.side_effect = lambda name: mock_scheduler if name == "sleep_scheduler" else None
+
+    response = client.get("/api/sleep/consolidations")
+    assert response.status_code == 200
+    data = response.json()
+    assert "consolidations" in data
+    assert data["cycle_count"] == 3
+    assert data["current_stage"] == "consolidating"
+
+
+def test_sleep_consolidations_module_unavailable_returns_503(client, mock_lifecycle):
+    """GET /api/sleep/consolidations returns 503 if scheduler is missing."""
+    mock_lifecycle.get_module.return_value = None
+
+    response = client.get("/api/sleep/consolidations")
+    assert response.status_code == 503

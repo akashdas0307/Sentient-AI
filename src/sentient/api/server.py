@@ -86,6 +86,7 @@ class APIServer:
 
         # Cleanup task
         self._cleanup_task: asyncio.Task | None = None
+        self._health_broadcast_task: asyncio.Task | None = None
 
         self._configure_middleware()
         self._register_routes()
@@ -209,6 +210,84 @@ class APIServer:
                 return {"error": "cognitive core not available"}
             return cognitive.health_pulse().metrics
 
+        @self.app.get("/api/memory/search")
+        async def search_memory(q: str = "", limit: int = 20):
+            memory = self.lifecycle.get_module("memory")
+            if memory is None:
+                return JSONResponse({"error": "memory module not available"}, status_code=503)
+            if not q:
+                return JSONResponse({"error": "query parameter 'q' is required"}, status_code=400)
+            results = await memory.retrieve(query=q, limit=limit)
+            return {"entries": results}
+
+        @self.app.get("/api/memory/recent")
+        async def recent_memory(limit: int = 20):
+            memory = self.lifecycle.get_module("memory")
+            if memory is None:
+                return JSONResponse({"error": "memory module not available"}, status_code=503)
+            results = await memory.retrieve(query="", limit=limit)
+            return {"entries": results}
+
+        @self.app.get("/api/memory/graph")
+        async def get_memory_graph():
+            memory = self.lifecycle.get_module("memory")
+            if memory is None:
+                return JSONResponse({"error": "memory module not available"}, status_code=503)
+
+            # Fetch all memories and links for the graph
+            # In a larger system we might limit this, but for MVS we send the whole map
+            try:
+                # Use private _conn for now to execute raw queries
+                if not memory._conn:
+                    return JSONResponse({"error": "memory database not available"}, status_code=503)
+
+                # Fetch nodes
+                nodes_cursor = memory._conn.execute(
+                    "SELECT id, memory_type, content, importance, confidence, entity_tags, topic_tags, created_at FROM memories WHERE is_archived = 0"
+                )
+                nodes = []
+                for row in nodes_cursor:
+                    node = dict(row)
+                    node["entity_tags"] = json.loads(node.get("entity_tags", "[]"))
+                    node["topic_tags"] = json.loads(node.get("topic_tags", "[]"))
+                    nodes.append(node)
+
+                # Fetch links
+                links_cursor = memory._conn.execute(
+                    "SELECT from_memory_id, to_memory_id, link_type, strength FROM memory_links"
+                )
+                links = [dict(row) for row in links_cursor]
+
+                return {
+                    "nodes": nodes,
+                    "links": links
+                }
+            except Exception as exc:
+                logger.exception("Graph data fetch error: %s", exc)
+                return JSONResponse({"error": str(exc)}, status_code=500)
+
+        @self.app.get("/api/sleep/status")
+        async def get_sleep_status():
+            scheduler = self.lifecycle.get_module("sleep_scheduler")
+            if scheduler is None:
+                return JSONResponse({"error": "sleep scheduler not available"}, status_code=503)
+            pulse = scheduler.health_pulse()
+            return pulse.metrics
+
+        @self.app.get("/api/sleep/consolidations")
+        async def get_consolidations():
+            scheduler = self.lifecycle.get_module("sleep_scheduler")
+            if scheduler is None:
+                return JSONResponse({"error": "sleep scheduler not available"}, status_code=503)
+            pulse = scheduler.health_pulse()
+            metrics = pulse.metrics
+            # Return basic consolidation info from health metrics
+            return {
+                "consolidations": [],
+                "cycle_count": metrics.get("sleep_cycle_count", 0),
+                "current_stage": metrics.get("current_stage", "unknown"),
+            }
+
         # === Unified WebSocket /ws ===
         @self.app.websocket("/ws")
         async def unified_ws(websocket: WebSocket):
@@ -220,6 +299,7 @@ class APIServer:
                 await websocket.send_json({
                     "type": "health",
                     "data": health,
+                    "health": health,
                     "timestamp": time.time(),
                 })
 
@@ -298,6 +378,7 @@ class APIServer:
 
         # Subscribe to all events for WS broadcasting
         await self.event_bus.subscribe("*", self._broadcast_event)
+        self._health_broadcast_task = asyncio.create_task(self._periodic_health_broadcast())
 
         # Start cleanup task
         self._cleanup_task = asyncio.create_task(self._cleanup_turn_records())
@@ -320,6 +401,12 @@ class APIServer:
             self._cleanup_task.cancel()
             try:
                 await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+        if self._health_broadcast_task:
+            self._health_broadcast_task.cancel()
+            try:
+                await self._health_broadcast_task
             except asyncio.CancelledError:
                 pass
         if self._outgoing_drain_task:
@@ -348,8 +435,18 @@ class APIServer:
                     "type": "reply",
                     "turn_id": turn_id,
                     "text": message.get("text", ""),
+                    "turn": {
+                        "turn_id": turn_id,
+                        "user_message": "",
+                        "assistant_reply": message.get("text", ""),
+                        "events": [],
+                        "started_at": 0,
+                        "completed_at": time.time(),
+                        "is_complete": True,
+                    },
                     "done": True,
                     "timestamp": time.time(),
+                    "payload": {"sender": "assistant"}
                 }
 
                 dead = set()
@@ -405,6 +502,31 @@ class APIServer:
         # Track in turn record if applicable
         if turn_id and turn_id in self._turn_records:
             self._turn_records[turn_id].events.append(event_msg)
+
+    async def _periodic_health_broadcast(self) -> None:
+        """Send health snapshots to all WS clients every 10 seconds."""
+        while True:
+            try:
+                await asyncio.sleep(10)
+                if self._ws_clients:
+                    health = self.health_network.snapshot()
+                    msg = {
+                        "type": "health",
+                        "data": health,
+                        "health": health,
+                        "timestamp": time.time(),
+                    }
+                    dead = set()
+                    for ws in self._ws_clients:
+                        try:
+                            await ws.send_json(msg)
+                        except Exception:
+                            dead.add(ws)
+                    self._ws_clients -= dead
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.exception("Health broadcast error: %s", exc)
 
     def _map_event_to_stage(self, event_name: str) -> str:
         """Map event name prefix to human-readable stage."""

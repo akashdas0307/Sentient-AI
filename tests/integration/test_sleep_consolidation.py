@@ -8,10 +8,8 @@ and mock InferenceGateway that returns 3 facts.
 """
 from __future__ import annotations
 
-import asyncio
 import sqlite3
 import time
-import uuid
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -20,7 +18,6 @@ import pytest
 from sentient.sleep.consolidation import ConsolidationEngine
 from sentient.sleep.schemas import (
     ExtractedFact,
-    ExtractedPattern,
     ProceduralPatternList,
     SemanticFactList,
 )

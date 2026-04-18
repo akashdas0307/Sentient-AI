@@ -8,12 +8,11 @@ Tests that the scheduler properly wires in the ConsolidationEngine:
 """
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from sentient.sleep.scheduler import SleepScheduler, SleepStage
+from sentient.sleep.scheduler import SleepScheduler
 
 
 # ---------------------------------------------------------------------------
