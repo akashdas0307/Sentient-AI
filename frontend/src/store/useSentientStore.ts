@@ -5,7 +5,8 @@ import {
   HealthSnapshot,
   TurnRecord,
   SystemStatus,
-  MemoryStats
+  MemoryStats,
+  MonologueEntry
 } from '../types';
 
 const MAX_MESSAGES = 200;
@@ -73,6 +74,7 @@ interface SentientState {
   lastTurn: TurnRecord | null;
   systemStatus: SystemStatus | null;
   memoryStats: MemoryStats | null;
+  monologueEntries: MonologueEntry[];
 
   // Actions
   addMessage: (message: WSMessage) => void;
@@ -83,6 +85,7 @@ interface SentientState {
   setMemoryStats: (stats: MemoryStats | null) => void;
   clearMessages: () => void;
   deleteMessage: (timestamp: number) => void;
+  addMonologueEntry: (entry: MonologueEntry) => void;
 }
 
 export const useSentientStore = create<SentientState>()(
@@ -94,6 +97,7 @@ export const useSentientStore = create<SentientState>()(
       lastTurn: null,
       systemStatus: null,
       memoryStats: null,
+      monologueEntries: [],
 
       addMessage: (message) => set((state) => {
         // Prevent duplicate messages based on timestamp and type
@@ -127,6 +131,13 @@ export const useSentientStore = create<SentientState>()(
       deleteMessage: (timestamp) => set((state) => ({
         messages: state.messages.filter(m => m.timestamp !== timestamp)
       })),
+
+      addMonologueEntry: (entry) => set((state) => {
+        // Dedup by id
+        if (state.monologueEntries.some(e => e.id === entry.id)) return state;
+        // Prepend and cap at 50
+        return { monologueEntries: [entry, ...state.monologueEntries].slice(0, 50) };
+      }),
     }),
     {
       name: 'sentient-storage',

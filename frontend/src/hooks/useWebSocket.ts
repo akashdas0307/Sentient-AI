@@ -35,7 +35,20 @@ export const useWebSocket = (url: string) => {
 
         switch (message.type) {
           case 'event':
-            // Events are already added to message stream above
+            // Handle cognitive.cycle.complete for inner monologue
+            if (message.event_name === 'cognitive.cycle.complete') {
+              const monologue = (message.data as any)?.monologue || '';
+              if (monologue) { // Only add non-empty monologue entries
+                useSentientStore.getState().addMonologueEntry({
+                  id: (message.data as any)?.cycle_id || message.timestamp.toString(),
+                  monologue,
+                  is_daydream: (message.data as any)?.is_daydream || false,
+                  decision_count: (message.data as any)?.decision_count || 0,
+                  duration_ms: (message.data as any)?.duration_ms || null,
+                  timestamp: message.timestamp,
+                });
+              }
+            }
             break;
           case 'health':
             useSentientStore.getState().setHealthSnapshot(message.health || (message as any).data);

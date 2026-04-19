@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
+import { MonologuePanel } from '@/components/MonologuePanel';
 
 interface ChatMessage {
   id: string;
@@ -53,8 +54,9 @@ export const ChatPage: React.FC<{ onSendMessage: (text: string) => void }> = ({ 
   };
 
   return (
-    <div className="flex flex-col h-full bg-background/50">
-      {/* Header */}
+    <div className="flex flex-col md:flex-row h-full">
+      <div className="flex-1 min-w-0 flex flex-col">
+        {/* Header */}
       <div className="px-6 py-4 border-b border-border bg-card/30 backdrop-blur-md flex items-center justify-between z-10">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
@@ -204,6 +206,15 @@ export const ChatPage: React.FC<{ onSendMessage: (text: string) => void }> = ({ 
           <p className="text-[9px] text-muted-foreground uppercase tracking-[0.3em] opacity-40 font-mono">
             Direct neural link • v0.7.0 • End-to-end encrypted
           </p>
+        </div>
+      </div>
+        {/* Desktop Monologue Panel */}
+        <div className="hidden md:flex w-80 border-l border-border">
+          <MonologuePanel />
+        </div>
+        {/* Mobile floating MonologuePanel */}
+        <div className="md:hidden fixed bottom-20 right-4 z-50">
+          <MonologuePanel mobile />
         </div>
       </div>
     </div>
