@@ -4,11 +4,13 @@ import type { WSMessage } from '../types';
 import type { InferenceCall } from '../types/gateway';
 
 const MAX_RETRIES = 10;
+const MAX_SENT_TURN_IDS = 200;
 
 export const useWebSocket = (url: string) => {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number>(0);
   const retryCountRef = useRef<number>(0);
+  const sentTurnIdsRef = useRef<Set<string>>(new Set());
 
   const setConnected = useSentientStore((s) => s.setConnected);
 
@@ -36,6 +38,14 @@ export const useWebSocket = (url: string) => {
 
         switch (message.type) {
           case 'event':
+            // Skip chat.input.received if we already added it optimistically (prevents duplicate)
+            if (message.event_name === 'chat.input.received') {
+              const eventTurnId = (message as any).turn_id;
+              if (eventTurnId && sentTurnIdsRef.current.has(eventTurnId)) {
+                sentTurnIdsRef.current.delete(eventTurnId);
+                break;
+              }
+            }
             // Handle cognitive.cycle.complete for inner monologue
             if (message.event_name === 'cognitive.cycle.complete') {
               const monologue = (message.data as any)?.monologue || '';
@@ -152,9 +162,20 @@ export const useWebSocket = (url: string) => {
   }, [url, setConnected]);
 
   const sendChat = useCallback((text: string, sessionId: string = 'default') => {
+    const turnId = `turn_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+    // Track sent turn_id to prevent duplicate when server echoes back
+    sentTurnIdsRef.current.add(turnId);
+    // Keep set bounded
+    if (sentTurnIdsRef.current.size > MAX_SENT_TURN_IDS) {
+      const arr = Array.from(sentTurnIdsRef.current);
+      sentTurnIdsRef.current = new Set(arr.slice(-MAX_SENT_TURN_IDS));
+    }
+
     // Optimistically add user message to store for persistence
     useSentientStore.getState().addMessage({
-      type: 'reply', // Using reply type but with user flag or just filtering later
+      type: 'reply',
+      turn_id: turnId,
       timestamp: Date.now(),
       text: text,
       payload: { sender: 'user' }
@@ -165,6 +186,7 @@ export const useWebSocket = (url: string) => {
         type: 'chat',
         text,
         session_id: sessionId,
+        turn_id: turnId,
       }));
       return true;
     }

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Activity, RefreshCw, BarChart3, Layers, Zap, Info } from 'lucide-react';
 import { useSentientStore } from '../store/useSentientStore';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -31,7 +31,7 @@ export const ModulesPage: React.FC = () => {
         name,
         status: data.status,
         pulses: data.pulse_count,
-        last_pulse: data.last_pulse_timestamp,
+        last_pulse: (data as any).last_pulse_timestamp ?? (data as any).last_pulse,
       }))
     : [];
 
@@ -119,7 +119,7 @@ export const ModulesPage: React.FC = () => {
                       dy={10}
                     />
                     <YAxis
-                      tick={{ fill: 'var(--text-muted)', fontSize: 10, fontBold: true }}
+                      tick={{ fill: 'var(--text-muted)', fontSize: 10, fontWeight: 500 }}
                       axisLine={false}
                       tickLine={false}
                     />

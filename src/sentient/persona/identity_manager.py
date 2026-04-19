@@ -316,6 +316,20 @@ class PersonaManager(ModuleInterface):
         """Check if a sender is the Tier 1 Creator."""
         return sender_identity == "creator"
 
+    def get_state(self) -> dict[str, Any]:
+        """Return full identity state for API endpoint."""
+        return {
+            "maturity_stage": self._developmental.get("maturity_stage", "nascent"),
+            "personality_traits": self._developmental.get("personality_traits", {}),
+            "drift_log": self._developmental.get("drift_log", []),
+            "constitutional_locked": self._constitutional.get("modification_lock", False),
+            "dynamic_state": {
+                "energy_level": self._dynamic_state.energy_level,
+                "current_mood": dict(self._dynamic_state.current_mood),
+                "current_focus": self._dynamic_state.current_focus,
+            },
+        }
+
     def health_pulse(self) -> HealthPulse:
         return HealthPulse(
             module_name=self.name,

@@ -239,6 +239,7 @@ async def build_and_start() -> tuple[LifecycleManager, Any]:
         health_pulse_network=health_network,
         event_bus=event_bus,
         inference_gateway=inference_gateway,
+        persona=persona,
     )
     await api_server.start()
 

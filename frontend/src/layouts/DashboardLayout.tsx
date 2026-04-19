@@ -14,6 +14,7 @@ import {
   Shield,
   Network,
   Zap,
+  User,
 } from 'lucide-react';
 import { useSentientStore } from '../store/useSentientStore';
 import { Button } from '@/components/ui/button';
@@ -28,6 +29,7 @@ const navItems = [
   { path: '/graph', label: 'Graph', icon: Network },
   { path: '/sleep', label: 'Sleep', icon: Moon },
   { path: '/events', label: 'Events', icon: ListTree },
+  { path: '/identity', label: 'Identity', icon: User },
 ];
 
 const pageVariants = {

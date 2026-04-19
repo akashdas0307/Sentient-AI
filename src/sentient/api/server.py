@@ -93,6 +93,7 @@ class APIServer:
         health_pulse_network: Any,
         event_bus: EventBus | None = None,
         inference_gateway: Any = None,
+        persona: Any = None,
     ) -> None:
         self.config = config
         self.event_bus = event_bus or get_event_bus()
@@ -101,6 +102,7 @@ class APIServer:
         self.chat_output = chat_output_plugin
         self.health_network = health_pulse_network
         self.inference_gateway = inference_gateway
+        self.persona = persona
 
         self.host = config.get("host", "127.0.0.1")
         self.port = config.get("port", 8765)
@@ -328,6 +330,12 @@ class APIServer:
                 "cycle_count": metrics.get("sleep_cycle_count", 0),
                 "current_stage": metrics.get("current_stage", "unknown"),
             }
+
+        @self.app.get("/api/persona/state")
+        async def get_persona_state():
+            if self.persona:
+                return self.persona.get_state()
+            return JSONResponse({"error": "persona not available"}, status_code=503)
 
         # === Unified WebSocket /ws ===
         @self.app.websocket("/ws")

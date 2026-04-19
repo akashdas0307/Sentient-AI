@@ -8,6 +8,7 @@ import { MemoryGraphPage } from './pages/MemoryGraphPage';
 import { SleepPage } from './pages/SleepPage';
 import { EventsPage } from './pages/EventsPage';
 import { GatewayPage } from './pages/GatewayPage';
+import { IdentityPage } from './pages/IdentityPage';
 import { useWebSocket } from './hooks/useWebSocket';
 
 const App: React.FC = () => {
@@ -35,6 +36,7 @@ const App: React.FC = () => {
           <Route path="sleep" element={<SleepPage />} />
           <Route path="events" element={<EventsPage />} />
           <Route path="gateway" element={<GatewayPage />} />
+          <Route path="identity" element={<IdentityPage />} />
         </Route>
       </Routes>
     </div>
