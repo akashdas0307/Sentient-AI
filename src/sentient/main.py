@@ -45,6 +45,7 @@ from sentient.prajna.temporal_limbic import TemporalLimbicProcessor
 from sentient.sleep.scheduler import SleepScheduler
 from sentient.sleep.consolidation import ConsolidationEngine
 from sentient.sleep.contradiction_resolver import ContradictionResolver
+from sentient.sleep.developmental_consolidator import DevelopmentalConsolidator
 from sentient.sleep.identity_drift_detector import IdentityDriftDetector
 from sentient.sleep.procedural_refiner import ProceduralRefiner
 from sentient.sleep.wm_calibrator import WMCalibrator
@@ -196,6 +197,14 @@ async def build_and_start() -> tuple[LifecycleManager, Any]:
         event_bus=event_bus,
         config=system_cfg.get("sleep", {}).get("identity_drift", {}),
     )
+    # Instantiate developmental consolidator
+    developmental_consolidator = DevelopmentalConsolidator(
+        memory=memory,
+        gateway=inference_gateway,
+        persona=persona,
+        event_bus=event_bus,
+        config=system_cfg.get("sleep", {}).get("developmental_consolidation", {}),
+    )
 
     sleep = SleepScheduler(
         system_cfg.get("sleep", {}),
@@ -206,6 +215,7 @@ async def build_and_start() -> tuple[LifecycleManager, Any]:
         wm_calibrator=wm_calibrator,
         procedural_refiner=procedural_refiner,
         identity_drift_detector=identity_drift_detector,
+        developmental_consolidator=developmental_consolidator,
         event_bus=event_bus,
     )
     lifecycle.register(sleep, essential=True)

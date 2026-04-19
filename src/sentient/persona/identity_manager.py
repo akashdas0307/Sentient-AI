@@ -155,12 +155,17 @@ class PersonaManager(ModuleInterface):
             )
 
     def _save_developmental(self) -> None:
-        """Save developmental layer back to disk."""
+        """Save developmental layer atomically: tmpfile, fsync, rename."""
+        import os
         self._developmental["last_updated"] = time.time()
         self._developmental["version"] = self._developmental.get("version", 1) + 1
         try:
-            with open(self.developmental_path, "w") as f:
+            tmp_path = str(self.developmental_path) + ".tmp"
+            with open(tmp_path, "w") as f:
                 yaml.safe_dump(self._developmental, f, sort_keys=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, self.developmental_path)
         except Exception as exc:
             logger.exception("Failed to save developmental identity: %s", exc)
 
@@ -232,6 +237,40 @@ class PersonaManager(ModuleInterface):
         This handler is called by the Sleep system.
         """
         updates = payload.get("updates", {})
+
+        # YELLOW gate: write amplification cap
+        total_trait_changes = sum(
+            len(v) if isinstance(v, dict) else 1 for v in updates.values()
+        )
+        if total_trait_changes > 5:
+            logger.warning(
+                "Persona: write amplification cap — %d proposed changes, capping at 5",
+                total_trait_changes,
+            )
+            # Keep only first 5 entries across all categories
+            applied = 0
+            capped_updates = {}
+            for key, value in updates.items():
+                if applied >= 5:
+                    break
+                if key in (
+                    "personality_traits",
+                    "communication_style",
+                    "interests",
+                    "self_understanding",
+                    "relational_texture",
+                ):
+                    if isinstance(value, dict):
+                        items = list(value.items())
+                        remaining = 5 - applied
+                        capped_updates[key] = dict(items[:remaining])
+                        applied += min(len(items), remaining)
+                    elif isinstance(value, list):
+                        remaining = 5 - applied
+                        capped_updates[key] = value[:remaining]
+                        applied += min(len(value), remaining)
+            updates = capped_updates
+
         for key, value in updates.items():
             if key in ("personality_traits", "communication_style",
                       "interests", "self_understanding", "relational_texture"):

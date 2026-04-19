@@ -21,6 +21,7 @@ from sentient.core.module_interface import HealthPulse, ModuleInterface, ModuleS
 
 if TYPE_CHECKING:
     from sentient.sleep.contradiction_resolver import ContradictionResolver
+    from sentient.sleep.developmental_consolidator import DevelopmentalConsolidator
     from sentient.sleep.identity_drift_detector import IdentityDriftDetector
     from sentient.sleep.procedural_refiner import ProceduralRefiner
     from sentient.sleep.wm_calibrator import WMCalibrator
@@ -49,6 +50,7 @@ class SleepScheduler(ModuleInterface):
         wm_calibrator: "WMCalibrator | None" = None,
         procedural_refiner: "ProceduralRefiner | None" = None,
         identity_drift_detector: "IdentityDriftDetector | None" = None,
+        developmental_consolidator: "DevelopmentalConsolidator | None" = None,
         event_bus: EventBus | None = None,
     ) -> None:
         super().__init__("sleep_scheduler", config)
@@ -60,6 +62,7 @@ class SleepScheduler(ModuleInterface):
         self.wm_calibrator = wm_calibrator
         self.procedural_refiner = procedural_refiner
         self.identity_drift_detector = identity_drift_detector
+        self.developmental_consolidator = developmental_consolidator
 
         self.min_hours = config.get("duration", {}).get("min_hours", 6)
         self.max_hours = config.get("duration", {}).get("max_hours", 12)
@@ -213,12 +216,12 @@ class SleepScheduler(ModuleInterface):
           3. Procedural memory refinement — Job 3 (active, D5)
           4. World Model Journal calibration — Job 4 (active, D4)
           5. Identity drift detection — Job 5 (active, D5)
-          6. Trait discovery — Job 6 (stub)
+          6. Developmental identity evolution — Job 6 (active, D6)
           7. Offspring evaluation (Phase 3) — Job 7 (stub)
 
         MVS: runs ConsolidationEngine for job 1, ContradictionResolver for job 2,
-        ProceduralRefiner for job 3, WMCalibrator for job 4, and IdentityDriftDetector
-        for job 5. Others are stubs.
+        ProceduralRefiner for job 3, WMCalibrator for job 4, IdentityDriftDetector
+        for job 5, and DevelopmentalConsolidator for job 6. Others are stubs.
         """
         await self.event_bus.publish(
             "sleep.deep_consolidation.start",
@@ -272,6 +275,14 @@ class SleepScheduler(ModuleInterface):
                 logger.info("Identity drift detection: %s", result)
             except Exception as exc:
                 logger.exception("Identity drift detection error: %s", exc)
+
+        # Job 6: Developmental Identity Evolution (D6)
+        if self.developmental_consolidator:
+            try:
+                result = await self.developmental_consolidator.consolidate()
+                logger.info("Developmental consolidation: %s", result)
+            except Exception as exc:
+                logger.exception("Developmental consolidation error: %s", exc)
 
         # await self._job_trait_discovery()             # Phase 2
         # await self._job_offspring_evaluation()        # Phase 3

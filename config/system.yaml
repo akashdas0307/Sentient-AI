@@ -100,6 +100,11 @@ sleep:
     enabled: true
     drift_threshold: 0.3
     drift_window_days: 7
+  developmental_consolidation:
+    enabled: true
+    min_evidence_points: 3
+    max_traits_per_cycle: 5
+    llm_timeout_seconds: 30
 
 api:
   host: 0.0.0.0
