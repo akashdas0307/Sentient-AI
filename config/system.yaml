@@ -75,6 +75,9 @@ harness:
   command:
     - claude
     - --print
+  enabled: true
+  timeout_seconds: 300
+  workspace_dir: ./data/harness_workspace
 
 sleep:
   consolidation:
