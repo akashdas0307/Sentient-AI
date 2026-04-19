@@ -8,6 +8,64 @@ import {
   MemoryStats
 } from '../types';
 
+const MAX_MESSAGES = 200;
+const STORAGE_QUOTA_MARGIN = 0.8; // Evict when estimated size exceeds 80% of 5MB
+
+function estimateStateSize(messages: WSMessage[]): number {
+  // Rough JSON size estimate without full serialization
+  let size = 0;
+  for (const m of messages) {
+    size += 100; // base overhead per message
+    if (m.text) size += m.text.length;
+    if (m.data) size += JSON.stringify(m.data).length;
+    if (m.payload) size += JSON.stringify(m.payload).length;
+  }
+  return size;
+}
+
+// Custom storage that handles QuotaExceededError by evicting old messages
+const safeLocalStorage = {
+  getItem: (name: string): string | null => {
+    try {
+      return localStorage.getItem(name);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (name: string, value: string): void => {
+    try {
+      localStorage.setItem(name, value);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+        // Evict oldest 50% of messages and retry
+        const store = useSentientStore.getState();
+        const half = Math.ceil(store.messages.length / 2);
+        useSentientStore.setState({
+          messages: store.messages.slice(0, half),
+        });
+        try {
+          localStorage.setItem(name, value);
+        } catch {
+          // Still failing — clear messages entirely and retry
+          useSentientStore.setState({ messages: [] });
+          try {
+            localStorage.setItem(name, value);
+          } catch {
+            // Give up silently — app works without persistence
+          }
+        }
+      }
+    }
+  },
+  removeItem: (name: string): void => {
+    try {
+      localStorage.removeItem(name);
+    } catch {
+      // Ignore
+    }
+  },
+};
+
 interface SentientState {
   messages: WSMessage[];
   healthSnapshot: HealthSnapshot | null;
@@ -42,12 +100,16 @@ export const useSentientStore = create<SentientState>()(
         const exists = state.messages.some(m => m.timestamp === message.timestamp && m.type === message.type);
         if (exists) return state;
 
-        // If it's an event, we might want to update an existing turn record instead of just adding it
-        // but for now we keep the append logic and the UI filters
+        const newMessages = [message, ...state.messages].slice(0, MAX_MESSAGES);
 
-        return {
-          messages: [message, ...state.messages].slice(0, 5000) // Increased limit for full history
-        };
+        // Proactive eviction: if estimated size exceeds quota margin, trim further
+        const maxSize = 5 * 1024 * 1024 * STORAGE_QUOTA_MARGIN;
+        let trimmed = newMessages;
+        while (estimateStateSize(trimmed) > maxSize && trimmed.length > 20) {
+          trimmed = trimmed.slice(0, Math.ceil(trimmed.length * 0.7));
+        }
+
+        return { messages: trimmed };
       }),
 
       setHealthSnapshot: (snapshot) => set({ healthSnapshot: snapshot }),
@@ -68,7 +130,7 @@ export const useSentientStore = create<SentientState>()(
     }),
     {
       name: 'sentient-storage',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => safeLocalStorage),
       partialize: (state) => ({
         messages: state.messages,
         systemStatus: state.systemStatus,
