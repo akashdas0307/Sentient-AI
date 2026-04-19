@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sqlite3
 import time
-import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -121,9 +120,6 @@ class TestWMCalibrator:
         """Calibrator initializes with custom config values."""
         from sentient.sleep.wm_calibrator import (
             WMCalibrator,
-            DEFAULT_ENABLED,
-            DEFAULT_MAX_ADJUSTMENT_PER_CYCLE,
-            DEFAULT_CORRECTION_MARKERS,
         )
         config = {
             "enabled": False,

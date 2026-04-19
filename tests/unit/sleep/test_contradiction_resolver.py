@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sqlite3
 import time
-import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -103,10 +102,6 @@ class TestContradictionResolver:
         """Resolver initializes with custom config values."""
         from sentient.sleep.contradiction_resolver import (
             ContradictionResolver,
-            DEFAULT_ENABLED,
-            DEFAULT_MAX_PAIRS_PER_CYCLE,
-            DEFAULT_SIMILARITY_THRESHOLD,
-            DEFAULT_LLM_TIMEOUT_SECONDS,
         )
         config = {
             "enabled": False,

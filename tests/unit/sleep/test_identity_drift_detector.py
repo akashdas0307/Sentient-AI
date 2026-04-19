@@ -91,9 +91,6 @@ class TestIdentityDriftDetector:
         """Detector initializes with custom config values."""
         from sentient.sleep.identity_drift_detector import (
             IdentityDriftDetector,
-            DEFAULT_ENABLED,
-            DEFAULT_DRIFT_THRESHOLD,
-            DEFAULT_DRIFT_WINDOW_DAYS,
         )
         config = {
             "enabled": False,
@@ -139,7 +136,7 @@ class TestIdentityDriftDetector:
         self, detector, mock_memory, in_memory_db
     ):
         """detect_drift() creates a snapshot row in identity_snapshots table."""
-        result = await detector.detect_drift()
+        await detector.detect_drift()
 
         rows = in_memory_db.execute("SELECT * FROM identity_snapshots").fetchall()
         assert len(rows) == 1

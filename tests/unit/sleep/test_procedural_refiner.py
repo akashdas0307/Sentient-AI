@@ -84,10 +84,6 @@ class TestProceduralRefiner:
         """Refiner initializes with custom config values."""
         from sentient.sleep.procedural_refiner import (
             ProceduralRefiner,
-            DEFAULT_ENABLED,
-            DEFAULT_REINFORCEMENT_THRESHOLD,
-            DEFAULT_STALE_DAYS,
-            DEFAULT_ARCHIVE_THRESHOLD,
         )
         config = {
             "enabled": False,
@@ -161,7 +157,7 @@ class TestProceduralRefiner:
             ),
         )
 
-        result = await refiner.refine()
+        await refiner.refine()
 
         # Check confidence after reinforcement
         high_row = in_memory_db.execute(
@@ -215,7 +211,7 @@ class TestProceduralRefiner:
             ),
         )
 
-        result = await refiner.refine()
+        await refiner.refine()
 
         stale_row = in_memory_db.execute(
             "SELECT confidence FROM procedural_memory WHERE pattern_id = ?",
@@ -266,7 +262,7 @@ class TestProceduralRefiner:
             ),
         )
 
-        result = await refiner.refine()
+        await refiner.refine()
 
         remaining = in_memory_db.execute(
             "SELECT COUNT(*) as c FROM procedural_memory"
