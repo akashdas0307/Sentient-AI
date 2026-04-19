@@ -8,8 +8,10 @@ import {
   MemoryStats,
   MonologueEntry
 } from '../types';
+import type { GatewayStatus, InferenceCall } from '../types/gateway';
 
 const MAX_MESSAGES = 200;
+const MAX_GATEWAY_CALLS = 100;
 const STORAGE_QUOTA_MARGIN = 0.8; // Evict when estimated size exceeds 80% of 5MB
 
 function estimateStateSize(messages: WSMessage[]): number {
@@ -75,6 +77,8 @@ interface SentientState {
   systemStatus: SystemStatus | null;
   memoryStats: MemoryStats | null;
   monologueEntries: MonologueEntry[];
+  gatewayStatus: GatewayStatus | null;
+  gatewayCalls: InferenceCall[];
 
   // Actions
   addMessage: (message: WSMessage) => void;
@@ -86,6 +90,8 @@ interface SentientState {
   clearMessages: () => void;
   deleteMessage: (timestamp: number) => void;
   addMonologueEntry: (entry: MonologueEntry) => void;
+  setGatewayStatus: (status: GatewayStatus | null) => void;
+  addGatewayCall: (call: InferenceCall) => void;
 }
 
 export const useSentientStore = create<SentientState>()(
@@ -98,6 +104,8 @@ export const useSentientStore = create<SentientState>()(
       systemStatus: null,
       memoryStats: null,
       monologueEntries: [],
+      gatewayStatus: null,
+      gatewayCalls: [],
 
       addMessage: (message) => set((state) => {
         // Prevent duplicate messages based on timestamp and type
@@ -137,6 +145,13 @@ export const useSentientStore = create<SentientState>()(
         if (state.monologueEntries.some(e => e.id === entry.id)) return state;
         // Prepend and cap at 50
         return { monologueEntries: [entry, ...state.monologueEntries].slice(0, 50) };
+      }),
+
+      setGatewayStatus: (status) => set({ gatewayStatus: status }),
+
+      addGatewayCall: (call) => set((state) => {
+        const newCalls = [call, ...state.gatewayCalls].slice(0, MAX_GATEWAY_CALLS);
+        return { gatewayCalls: newCalls };
       }),
     }),
     {

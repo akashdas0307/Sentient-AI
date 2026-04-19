@@ -13,6 +13,7 @@ import {
   WifiOff,
   Shield,
   Network,
+  Zap,
 } from 'lucide-react';
 import { useSentientStore } from '../store/useSentientStore';
 import { Button } from '@/components/ui/button';
@@ -22,6 +23,7 @@ import { cn } from '@/lib/utils';
 const navItems = [
   { path: '/', label: 'Chat', icon: MessageCircle },
   { path: '/modules', label: 'Modules', icon: Activity },
+  { path: '/gateway', label: 'Gateway', icon: Zap },
   { path: '/memory', label: 'Memory', icon: Database },
   { path: '/graph', label: 'Graph', icon: Network },
   { path: '/sleep', label: 'Sleep', icon: Moon },

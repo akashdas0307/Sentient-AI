@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { useSentientStore } from '../store/useSentientStore';
 import type { WSMessage } from '../types';
+import type { InferenceCall } from '../types/gateway';
 
 const MAX_RETRIES = 10;
 
@@ -77,6 +78,57 @@ export const useWebSocket = (url: string) => {
               .then((data) => useSentientStore.getState().setMemoryStats(data))
               .catch(() => {});
             break;
+          case 'inference.call.complete': {
+            const payload = message as any;
+            const call: InferenceCall = {
+              timestamp: payload.timestamp || Date.now() / 1000,
+              model_label: payload.model_label || 'unknown',
+              model_actual: payload.model_actual || 'unknown',
+              provider: payload.provider || 'unknown',
+              fallback_used: false,
+              duration_ms: payload.duration_ms || 0,
+              tokens_in: payload.tokens_in || 0,
+              tokens_out: payload.tokens_out || 0,
+              cost_usd: payload.cost_usd || 0,
+              error: null,
+            };
+            useSentientStore.getState().addGatewayCall(call);
+            break;
+          }
+          case 'inference.call.failed': {
+            const payload = message as any;
+            const call: InferenceCall = {
+              timestamp: payload.timestamp || Date.now() / 1000,
+              model_label: payload.model_label || 'unknown',
+              model_actual: 'unknown',
+              provider: payload.provider || 'unknown',
+              fallback_used: false,
+              duration_ms: payload.duration_ms || 0,
+              tokens_in: 0,
+              tokens_out: 0,
+              cost_usd: 0,
+              error: payload.error || 'Unknown error',
+            };
+            useSentientStore.getState().addGatewayCall(call);
+            break;
+          }
+          case 'inference.fallback.triggered': {
+            const payload = message as any;
+            const call: InferenceCall = {
+              timestamp: payload.timestamp || Date.now() / 1000,
+              model_label: payload.model_label || 'unknown',
+              model_actual: payload.model_actual || 'unknown',
+              provider: payload.provider || 'unknown',
+              fallback_used: true,
+              duration_ms: payload.duration_ms || 0,
+              tokens_in: payload.tokens_in || 0,
+              tokens_out: payload.tokens_out || 0,
+              cost_usd: payload.cost_usd || 0,
+              error: null,
+            };
+            useSentientStore.getState().addGatewayCall(call);
+            break;
+          }
         }
       } catch (err) {
         console.error('Failed to parse WS message', err);
@@ -121,9 +173,19 @@ export const useWebSocket = (url: string) => {
 
   useEffect(() => {
     connect();
+
+    // Poll gateway status every 10s
+    const pollInterval = setInterval(() => {
+      fetch('/api/gateway/status')
+        .then((r) => r.json())
+        .then((data) => useSentientStore.getState().setGatewayStatus(data))
+        .catch(() => {});
+    }, 10000);
+
     return () => {
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (socketRef.current) socketRef.current.close();
+      clearInterval(pollInterval);
     };
   }, [connect]);
 

@@ -56,7 +56,7 @@ export interface HealthSnapshot {
   };
 }
 
-export type WSMessageType = "health" | "welcome" | "event" | "reply" | "pong";
+export type WSMessageType = "health" | "welcome" | "event" | "reply" | "pong" | "inference.call.complete" | "inference.call.failed" | "inference.fallback.triggered";
 
 export interface WSMessage {
   type: WSMessageType;
