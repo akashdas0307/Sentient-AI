@@ -44,6 +44,8 @@ from sentient.prajna.queue_zone import QueueZone
 from sentient.prajna.temporal_limbic import TemporalLimbicProcessor
 from sentient.sleep.scheduler import SleepScheduler
 from sentient.sleep.consolidation import ConsolidationEngine
+from sentient.sleep.contradiction_resolver import ContradictionResolver
+from sentient.sleep.wm_calibrator import WMCalibrator
 from sentient.thalamus.gateway import Thalamus
 from sentient.thalamus.plugins.chat_input import ChatInputPlugin
 
@@ -165,11 +167,28 @@ async def build_and_start() -> tuple[LifecycleManager, Any]:
     lifecycle.register(brainstem)
 
     # === 8. Sleep Scheduler ===
+    # Instantiate contradiction resolver
+    contradiction_resolver = ContradictionResolver(
+        memory_architecture=memory,
+        inference_gateway=inference_gateway,
+        event_bus=event_bus,
+        config=system_cfg.get("sleep", {}).get("contradiction_resolution", {}),
+    )
+    # Instantiate WM calibrator
+    wm_calibrator = WMCalibrator(
+        world_model=world_model,
+        memory_architecture=memory,
+        event_bus=event_bus,
+        config=system_cfg.get("sleep", {}).get("wm_calibration", {}),
+    )
+
     sleep = SleepScheduler(
         system_cfg.get("sleep", {}),
         lifecycle,
         memory=memory,
         consolidation_engine=consolidation_engine,
+        contradiction_resolver=contradiction_resolver,
+        wm_calibrator=wm_calibrator,
         event_bus=event_bus,
     )
     lifecycle.register(sleep, essential=True)

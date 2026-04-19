@@ -14,10 +14,14 @@ import logging
 import time
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sentient.core.event_bus import EventBus, get_event_bus
 from sentient.core.module_interface import HealthPulse, ModuleInterface, ModuleStatus
+
+if TYPE_CHECKING:
+    from sentient.sleep.contradiction_resolver import ContradictionResolver
+    from sentient.sleep.wm_calibrator import WMCalibrator
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,8 @@ class SleepScheduler(ModuleInterface):
         lifecycle_manager: Any,   # LifecycleManager
         memory: Any | None = None,
         consolidation_engine: Any | None = None,
+        contradiction_resolver: "ContradictionResolver | None" = None,
+        wm_calibrator: "WMCalibrator | None" = None,
         event_bus: EventBus | None = None,
     ) -> None:
         super().__init__("sleep_scheduler", config)
@@ -46,6 +52,8 @@ class SleepScheduler(ModuleInterface):
         self.lifecycle = lifecycle_manager
         self.memory = memory
         self.consolidation_engine = consolidation_engine
+        self.contradiction_resolver = contradiction_resolver
+        self.wm_calibrator = wm_calibrator
 
         self.min_hours = config.get("duration", {}).get("min_hours", 6)
         self.max_hours = config.get("duration", {}).get("max_hours", 12)
@@ -194,15 +202,16 @@ class SleepScheduler(ModuleInterface):
         """Stage 3: the heart of sleep — memory consolidation.
 
         Per ARCHITECTURE.md §3.5, seven jobs run here:
-          1. Memory consolidation (progressive summarization)
-          2. Contradiction resolution
-          3. Procedural memory refinement
-          4. World Model Journal calibration
-          5. Identity drift detection
-          6. Trait discovery
-          7. Offspring evaluation (Phase 3)
+          1. Memory consolidation (progressive summarization) — Job 1 (active)
+          2. Contradiction resolution — Job 2 (active, D4)
+          3. Procedural memory refinement — Job 3 (stub)
+          4. World Model Journal calibration — Job 4 (active, D4)
+          5. Identity drift detection — Job 5 (stub)
+          6. Trait discovery — Job 6 (stub)
+          7. Offspring evaluation (Phase 3) — Job 7 (stub)
 
-        MVS: runs ConsolidationEngine for job 1. Others are stubs.
+        MVS: runs ConsolidationEngine for job 1, ContradictionResolver for job 2,
+        and WMCalibrator for job 4. Others are stubs.
         """
         await self.event_bus.publish(
             "sleep.deep_consolidation.start",
@@ -224,9 +233,25 @@ class SleepScheduler(ModuleInterface):
         else:
             # Fallback: run stub consolidation for backward compatibility
             await self._job_memory_consolidation()
-        # await self._job_contradiction_resolution()    # Phase 2
+
+        # Job 2: Contradiction Resolution (D4)
+        if self.contradiction_resolver:
+            try:
+                result = await self.contradiction_resolver.resolve_contradictions()
+                logger.info("Contradiction resolution: %s", result)
+            except Exception as exc:
+                logger.exception("Contradiction resolution error: %s", exc)
+
         # await self._job_procedural_refinement()       # Phase 2
-        # await self._job_world_model_calibration()     # Phase 2
+
+        # Job 4: WM Calibration (D4)
+        if self.wm_calibrator:
+            try:
+                result = await self.wm_calibrator.calibrate()
+                logger.info("WM calibration: %s", result)
+            except Exception as exc:
+                logger.exception("WM calibration error: %s", exc)
+
         # await self._job_identity_drift_detection()    # Phase 2
         # await self._job_trait_discovery()             # Phase 2
         # await self._job_offspring_evaluation()        # Phase 3

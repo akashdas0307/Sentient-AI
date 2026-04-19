@@ -81,6 +81,14 @@ sleep:
     enabled: true
     schedule: daily
     max_duration_seconds: 300
+  contradiction_resolution:
+    enabled: true
+    max_pairs_per_cycle: 10
+    similarity_threshold: 0.3
+    llm_timeout_seconds: 30
+  wm_calibration:
+    enabled: true
+    max_adjustment_per_cycle: 0.05
 
 api:
   host: 0.0.0.0

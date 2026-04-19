@@ -126,6 +126,18 @@ CREATE TABLE IF NOT EXISTS procedural_memory (
 );
 CREATE INDEX IF NOT EXISTS idx_procedural_confidence ON procedural_memory(confidence);
 CREATE INDEX IF NOT EXISTS idx_procedural_first_observed ON procedural_memory(first_observed);
+
+CREATE TABLE IF NOT EXISTS world_model_calibration (
+    id TEXT PRIMARY KEY,
+    cycle_id TEXT NOT NULL,
+    verdict_type TEXT NOT NULL,
+    original_confidence REAL NOT NULL,
+    adjustment REAL NOT NULL,
+    new_confidence REAL NOT NULL,
+    reason TEXT,
+    calibrated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wm_cal_cycle ON world_model_calibration(cycle_id);
 """
 
 
