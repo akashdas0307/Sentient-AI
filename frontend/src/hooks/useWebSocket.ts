@@ -33,19 +33,23 @@ export const useWebSocket = (url: string) => {
       try {
         const message: WSMessage = JSON.parse(event.data);
 
-        // Always add to message stream
-        useSentientStore.getState().addMessage(message);
+        // Skip chat.input.received if we already added it optimistically (prevents duplicate)
+        let skipAdd = false;
+        if (message.type === 'event' && message.event_name === 'chat.input.received') {
+          const eventTurnId = (message as any).turn_id;
+          if (eventTurnId && sentTurnIdsRef.current.has(eventTurnId)) {
+            sentTurnIdsRef.current.delete(eventTurnId);
+            skipAdd = true;
+          }
+        }
+
+        if (!skipAdd) {
+          useSentientStore.getState().addMessage(message);
+        }
 
         switch (message.type) {
           case 'event':
-            // Skip chat.input.received if we already added it optimistically (prevents duplicate)
-            if (message.event_name === 'chat.input.received') {
-              const eventTurnId = (message as any).turn_id;
-              if (eventTurnId && sentTurnIdsRef.current.has(eventTurnId)) {
-                sentTurnIdsRef.current.delete(eventTurnId);
-                break;
-              }
-            }
+            // chat.input.received dedup already handled above
             // Handle cognitive.cycle.complete for inner monologue
             if (message.event_name === 'cognitive.cycle.complete') {
               const monologue = (message.data as any)?.monologue || '';
