@@ -23,6 +23,12 @@ from sentient.core.event_bus import EventBus, get_event_bus
 from sentient.core.inference_gateway import InferenceGateway, InferenceRequest
 from sentient.core.module_interface import HealthPulse, ModuleInterface, ModuleStatus
 from sentient.prajna.frontal.schemas import CognitiveCoreResponse
+from sentient.prajna.frontal.daydream_seeds import (
+    DaydreamSeedSelector,
+    RandomMemorySeed,
+    EmotionalResidueSeed,
+    CuriositySeed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +73,8 @@ Schema:
         "content": "what to remember",
         "importance": 0.0-1.0
       }
-    ]
+    ],
+    "curiosity_candidates": ["follow-up questions about things you find interesting"]
   }
 }
 
@@ -176,6 +183,24 @@ class CognitiveCore(ModuleInterface):
         self._attention_summary_task: asyncio.Task | None = None
         self._current_revision_count = 0
         self._current_turn_id: str | None = None
+
+        # --- Daydream seed selector ---
+        seed_sources_enabled = config.get("daydream", {}).get("seed_sources_enabled", False)
+        if seed_sources_enabled and memory:
+            seed_cfg = config.get("daydream", {})
+            curiosity_max = seed_cfg.get("curiosity_queue_max_size", 20)
+            emotional_window = seed_cfg.get("emotional_residue_window_minutes", 30)
+            self._curiosity_seed = CuriositySeed(self.event_bus, max_size=curiosity_max)
+            self._seed_selector = DaydreamSeedSelector(
+                sources=[
+                    RandomMemorySeed(memory),
+                    EmotionalResidueSeed(memory, window_minutes=emotional_window),
+                    self._curiosity_seed,
+                ],
+            )
+        else:
+            self._curiosity_seed = None
+            self._seed_selector = None
 
     # === Lifecycle ===
 
@@ -297,6 +322,13 @@ class CognitiveCore(ModuleInterface):
             cycle.decisions = parsed.get("decisions", [])
             cycle.reflection = parsed.get("reflection", {})
 
+            # Queue curiosity candidates from reflection for future daydreaming
+            reflection = cycle.reflection
+            curiosity_candidates = reflection.get("curiosity_candidates", [])
+            if curiosity_candidates and self._curiosity_seed is not None:
+                for question in curiosity_candidates:
+                    self._curiosity_seed.add_curiosity(question)
+
             # Submit decisions to World Model for review
             for decision in cycle.decisions:
                 await self.event_bus.publish(
@@ -397,7 +429,7 @@ class CognitiveCore(ModuleInterface):
 
         # Input block
         if is_daydream:
-            blocks.append(self._build_daydream_seed())
+            blocks.append(await self._build_daydream_seed_async())
         else:
             blocks.append(self._build_input_block(context))
 
@@ -541,17 +573,25 @@ class CognitiveCore(ModuleInterface):
         return "\n".join(lines)
 
     def _build_daydream_seed(self) -> str:
-        """Build a daydream seed block.
+        """Build a daydream seed block using the seed selector.
 
         Per ARCHITECTURE.md §3.3.4 daydream — three sources, randomly selected:
         random_memory, emotional_residue, curiosity_queue.
-
-        STUB: MVS uses placeholder. Phase 2+ implements actual seed selection.
         """
         return (
             "=== DAYDREAM SEED ===\n"
-            "(idle reflection — let your thoughts wander naturally)"
+            + self._stub_daydream_seed()
         )
+
+    async def _build_daydream_seed_async(self) -> str:
+        """Async version that queries the seed selector."""
+        if self._seed_selector is not None:
+            return await self._seed_selector.select_seed()
+        return self._stub_daydream_seed()
+
+    def _stub_daydream_seed(self) -> str:
+        """Static stub text for when no seed selector is available."""
+        return "(idle reflection — let your thoughts wander naturally)"
 
     def _parse_response(self, text: str) -> dict[str, Any]:
         """Parse the structured JSON response.

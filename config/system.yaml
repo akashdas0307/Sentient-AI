@@ -1,171 +1,88 @@
-# Sentient AI Framework — System Configuration
+# System configuration for Sentient AI Framework
+# Phase 9: Daydream Seed Engine
 
 system:
-  name: "sentient"
-  version: "0.1.0-mvs"
-  data_dir: "./data"
+  data_dir: ./data
+  log_level: INFO
 
-# Thalamus configuration
+health:
+  pulse_interval_seconds: 30
+  anomaly_threshold: 0.8
+
+memory:
+  storage:
+    sqlite_path: ./data/memory.db
+    chroma_path: ./data/chroma
+  embeddings:
+    model: all-MiniLM-L6-v2
+  retrieval:
+    default_max_results: 15
+  gatekeeper:
+    importance_threshold: 0.3
+    novelty_bonus: 0.1
+
+persona:
+  config_dir: ./config/identity
+
 thalamus:
-  batching:
-    # Adaptive window: bounds and current default
-    min_window_seconds: 5
-    max_window_seconds: 60
-    default_window_seconds: 30
-  heuristic_engine:
-    # Layer 1 — pure code, no LLM
-    tier1_keywords:
-      - "emergency"
-      - "urgent"
-      - "stop"
-      - "help"
-    tier1_health_flag_threshold: "CRITICAL"
-  classifier:
-    # Layer 2 — local LLM
+  batch_processing:
     enabled: true
-    model_label: "thalamus-classifier"   # See inference_gateway.yaml
+  plugins:
+    - chat_input
 
-# Queue Zone configuration
-queue_zone:
-  starvation:
-    # Items aged this long get priority bumped
-    age_to_tier2_seconds: 1800   # 30 min
-    age_to_tier1_seconds: 21600  # 6 hours
-  batch_summarization:
-    threshold_count: 20
-  injection:
-    sidebar_check_interval_active: 3   # cycles
-    sidebar_check_interval_focused: 8  # cycles
-
-# Cognitive Core configuration
 cognitive_core:
   episodic_memory_enabled: true
-  reasoning:
-    fast_path_complexity_threshold: 0.3   # below this, skip steps 2-3
-    max_reasoning_seconds: 60
+  semantic_enabled: true
+  procedural_enabled: true
   daydream:
     enabled: true
     idle_seconds_before_trigger: 90
     max_daydream_duration_seconds: 180
-    novelty_threshold_for_early_exit: 0.4
-    triggers:
-      - random_memory
-      - emotional_residue
-      - curiosity_queue
-  context_assembly:
-    identity_block_token_budget: 400
-    state_block_token_budget: 200
-    environmental_block_token_budget: 150
-    sidebar_token_budget: 300
-    instruction_block_token_budget: 500
-    total_max_tokens: 8000
+    seed_sources_enabled: true
+    curiosity_queue_max_size: 20
+    emotional_residue_window_minutes: 30
 
-# World Model configuration
 world_model:
-  # MUST use different LLM than Cognitive Core (per DD-002)
-  model_label: "world-model"   # See inference_gateway.yaml
-  review_dimensions:
-    - feasibility
-    - consequence_prediction
-    - ethics_safety
-    - consistency
-    - reality_grounding
-  veto_loop:
-    max_revision_cycles: 3
-  conservatism:
-    # MVS starts conservative; loosens as Journal builds
-    initial_threshold: 0.7
-    minimum_threshold: 0.4
-
-# Decision Arbiter configuration
-decision_arbiter:
+  model_label: world-model
   max_revisions: 2
-  escalate_strategy: "approve_with_flag"
-  veto_fallback_template: "I need to think about that differently — could you rephrase?"
-  ethics_escalation_threshold: 0.3
-  stale_turn_ttl_seconds: 300
+  revision_esc:
+    approve_with_flag: true
+    fallback_veto: false
 
-# Memory configuration
-memory:
-  storage:
-    sqlite_path: "./data/memory.db"
-    chroma_path: "./data/chroma"
-  embeddings:
-    model: "all-MiniLM-L6-v2"   # local sentence-transformers
-  gatekeeper:
-    importance_threshold: 0.3
-    semantic_dedup_similarity: 0.92
-    recency_auto_pass_hours: 24
-  retrieval:
-    default_max_results: 15
-    deep_max_results: 30
+decision_arbiter:
+  revise_request_ttl_seconds: 300
+  veto_esc:
+    approve_with_flag: true
+    fallback_veto: false
 
-# Persona Manager configuration
-persona:
-  identity_files:
-    constitutional: "./config/identity/constitutional_core.yaml"
-    developmental: "./config/identity/developmental.yaml"
-  maturity:
-    starting_stage: "nascent"
-    stages:
-      - nascent
-      - forming
-      - developing
-      - mature
+checkpost:
+  entity_recognition:
+    enabled: true
 
-# Brainstem configuration
+tlp:
+  context_window: 10
+
+queue_zone:
+  starvation:
+    age_to_tier2_seconds: 300
+
 brainstem:
-  safety_gate:
-    irreversible_action_delay_seconds: 2
-    rate_limit_per_minute: 30
-  retry:
-    max_attempts: 3
-    backoff_seconds: [1, 3, 8]
+  plugins:
+    - chat_output
 
-# Sleep system configuration
+harness:
+  harness: claude_code
+  command:
+    - claude
+    - --print
+
 sleep:
-  duration:
-    min_hours: 6
-    max_hours: 12
-  stages:
-    settling_minutes: 45
-    pre_wake_minutes: 45
-  default_circadian:
-    sleep_hour: 23   # 11 PM
-    wake_hour: 7     # 7 AM
   consolidation:
-    daily_summary_at_age_hours: 24
-    weekly_summary_at_age_days: 7
-    monthly_summary_at_age_days: 30
-    quarterly_summary_at_age_days: 90
+    enabled: true
+    schedule: daily
+    max_duration_seconds: 300
 
-# Health system configuration
-health:
-  pulse:
-    default_interval_seconds: 30
-    critical_module_interval_seconds: 5
-    missed_pulse_multiplier: 3   # missed for this many intervals = UNRESPONSIVE
-  innate_response:
-    restart_attempts: 3
-    restart_backoff_seconds: [0, 30, 120]
-    circuit_breaker:
-      error_count_threshold: 3
-      error_window_minutes: 10
-      cooldown_seconds: 60
-
-# API server
 api:
-  host: "127.0.0.1"
+  host: 0.0.0.0
   port: 8765
-  websocket:
-    chat_path: "/ws/chat"
-    dashboard_path: "/ws/dashboard"
-
-# Logging
-logging:
-  level: "INFO"
-  log_dir: "./data/logs"
-  rotation:
-    core_log_days: 30
-    health_log_days: 90
-    cognitive_log_permanent: true
+  cors_enabled: true

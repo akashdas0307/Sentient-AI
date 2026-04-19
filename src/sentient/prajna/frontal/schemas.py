@@ -41,6 +41,7 @@ class ReflectionBlock(BaseModel):
     uncertainties: list[str] = []
     novelty: float = 0.5
     memory_candidates: list[MemoryCandidate] = []
+    curiosity_candidates: list[str] = []   # follow-up questions queued for daydream
 
 
 class CognitiveCoreResponse(BaseModel):
