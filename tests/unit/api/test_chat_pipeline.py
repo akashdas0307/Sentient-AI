@@ -269,11 +269,12 @@ async def test_full_pipeline_step_by_step(full_pipeline):
 
     # Verify WS received the reply
     mock_ws.send_text.assert_called()
-    # Check if any call contains the reply
+    # _safe_send_json sends JSON strings via send_text, so parse them
     found_reply = False
     for call in mock_ws.send_text.call_args_list:
-        if call[0][0]["type"] == "reply":
-            assert "Hello! How can I help you today?" in call[0][0]["text"]
+        msg = json.loads(call[0][0])
+        if msg["type"] == "reply":
+            assert "Hello! How can I help you today?" in msg["text"]
             found_reply = True
             break
     assert found_reply, "No 'reply' message sent to WebSocket"

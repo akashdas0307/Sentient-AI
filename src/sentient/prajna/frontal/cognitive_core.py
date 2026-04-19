@@ -27,6 +27,18 @@ from sentient.prajna.frontal.schemas import CognitiveCoreResponse
 logger = logging.getLogger(__name__)
 
 
+def _get_envelope(context: Any) -> Envelope | None:
+    """Extract envelope from context, handling both dict and object forms."""
+    if context is None:
+        return None
+    if isinstance(context, dict):
+        raw = context.get("envelope")
+        if isinstance(raw, dict):
+            return Envelope.from_dict(raw)
+        return raw
+    return getattr(context, "envelope", None)
+
+
 COGNITIVE_CORE_SYSTEM_PROMPT = """You are the Cognitive Core of a sentient digital entity.
 Your output MUST be valid JSON with exactly four fields. Do not include any prose, markdown, or commentary outside the JSON object.
 
@@ -189,7 +201,27 @@ class CognitiveCore(ModuleInterface):
 
     async def _handle_enriched(self, payload: dict[str, Any]) -> None:
         """Receive enriched context from TLP and run a reasoning cycle."""
-        context = payload["context"]
+        raw_context = payload["context"]
+        # Handle dict (from JSON deserialization) or EnrichedContext
+        if isinstance(raw_context, dict):
+            # Reconstruct Envelope if stored as dict
+            raw_envelope = raw_context.get("envelope")
+            if isinstance(raw_envelope, dict):
+                envelope = Envelope.from_dict(raw_envelope)
+            else:
+                envelope = raw_envelope
+            context = raw_context
+            context["envelope"] = envelope
+            # Reconstruct sidebar Envelopes
+            raw_sidebar = raw_context.get("sidebar", [])
+            if raw_sidebar and isinstance(raw_sidebar[0], dict):
+                context["sidebar"] = [
+                    Envelope.from_dict(item) if isinstance(item, dict) else item
+                    for item in raw_sidebar
+                ]
+        else:
+            context = raw_context
+            envelope = getattr(raw_context, "envelope", None) if raw_context else None
 
         # Save current state if we're in the middle of a daydream
         await self._maybe_save_state()
@@ -197,19 +229,22 @@ class CognitiveCore(ModuleInterface):
         # Generate turn_id for this input (stable across all revision cycles)
         self._current_turn_id = str(uuid.uuid4())
 
-        await self._run_reasoning_cycle(context)
+        await self._run_reasoning_cycle(context, envelope)
 
         self._last_activity_at = time.time()
 
     async def _run_reasoning_cycle(
         self,
-        context: Any,  # EnrichedContext
+        context: Any,  # EnrichedContext | dict
+        envelope: Envelope | None = None,
         is_daydream: bool = False,
     ) -> ReasoningCycle:
         """Execute one reasoning cycle."""
+        if envelope is None:
+            envelope = getattr(context, "envelope", None) if context else None
         cycle = ReasoningCycle(
             cycle_id=f"cycle_{self._cycle_count}",
-            triggering_envelope=context.envelope if context else None,
+            triggering_envelope=envelope,
             started_at=time.time(),
             is_daydream=is_daydream,
         )
@@ -223,7 +258,7 @@ class CognitiveCore(ModuleInterface):
         try:
             # Guard: if no envelope (daydream with context=None or no envelope),
             # publish cycle events with null IDs and return early
-            if context is None or context.envelope is None:
+            if context is None or envelope is None:
                 logger.debug("Reasoning cycle skipped: no envelope (daydream)")
                 cycle.completed_at = time.time()
                 await self.event_bus.publish(
@@ -271,7 +306,7 @@ class CognitiveCore(ModuleInterface):
                         "turn_id": self._current_turn_id,
                         "decision": decision,
                         "context_envelope_id": (
-                            context.envelope.envelope_id if context.envelope else None
+                            envelope.envelope_id if envelope else None
                         ),
                         "revision_count": self._current_revision_count,
                     },
@@ -285,7 +320,7 @@ class CognitiveCore(ModuleInterface):
                         "cycle_id": cycle.cycle_id,
                         "candidate": memory_candidate,
                         "source_envelope_id": (
-                            context.envelope.envelope_id if context.envelope else None
+                            envelope.envelope_id if envelope else None
                         ),
                     },
                 )
@@ -303,8 +338,8 @@ class CognitiveCore(ModuleInterface):
                         decision_summary = first_decision.get("text", first_decision.get("rationale", ""))[:200]
 
                     input_summary = ""
-                    if context and context.envelope:
-                        input_summary = context.envelope.processed_content[:300]
+                    if envelope:
+                        input_summary = envelope.processed_content[:300]
 
                     memory_content = f"User: {input_summary}" if input_summary else ""
                     if decision_summary:
@@ -367,9 +402,10 @@ class CognitiveCore(ModuleInterface):
             blocks.append(self._build_input_block(context))
 
         # Sidebar items (if any)
-        if context and context.sidebar:
+        sidebar = context.get("sidebar") if isinstance(context, dict) else getattr(context, "sidebar", None)
+        if sidebar:
             sidebar_text = "\n".join(
-                f"- {env.processed_content[:100]}" for env in context.sidebar[-5:]
+                f"- {env.processed_content[:100]}" for env in sidebar[-5:]
             )
             blocks.append(f"=== PERIPHERAL ATTENTION (sidebar) ===\n{sidebar_text}")
 
@@ -378,8 +414,9 @@ class CognitiveCore(ModuleInterface):
             try:
                 # Get the user input text for semantic retrieval
                 input_text = ""
-                if context and context.envelope:
-                    input_text = context.envelope.processed_content
+                env = _get_envelope(context)
+                if env:
+                    input_text = env.processed_content
 
                 if input_text:
                     episodic_memories = await self.memory.retrieve_episodic(input_text, k=3)
@@ -481,22 +518,26 @@ class CognitiveCore(ModuleInterface):
 
     def _build_input_block(self, context: Any) -> str:
         """Build the input block from enriched context."""
-        if context is None or context.envelope is None:
+        env = _get_envelope(context)
+        if env is None:
             return "=== INPUT ===\n(no input)"
 
-        env = context.envelope
+        # Use dict access for dict context, attribute access for object
+        related_memories = context.get("related_memories") if isinstance(context, dict) else getattr(context, "related_memories", [])
+        significance = context.get("significance") if isinstance(context, dict) else getattr(context, "significance", None)
+
         lines = ["=== INPUT ==="]
         lines.append(f"From: {env.sender_identity or 'unknown'}")
         lines.append(f"Source: {env.source_type.value}")
         lines.append(f"Content: {env.processed_content}")
         if env.entity_tags:
             lines.append(f"Entities: {', '.join(env.entity_tags)}")
-        if context.related_memories:
-            lines.append(f"\n=== RELATED MEMORIES ({len(context.related_memories)}) ===")
-            for memory in context.related_memories[:5]:
+        if related_memories:
+            lines.append(f"\n=== RELATED MEMORIES ({len(related_memories)}) ===")
+            for memory in related_memories[:5]:
                 lines.append(f"- {memory.get('processed_content', '')[:150]}")
-        if context.significance:
-            lines.append(f"\nSignificance: {context.significance}")
+        if significance:
+            lines.append(f"\nSignificance: {significance}")
         return "\n".join(lines)
 
     def _build_daydream_seed(self) -> str:
