@@ -19,7 +19,7 @@ Deliver a production-ready live system with the Decision Arbiter architectural l
 | D4 | Decision Arbiter Implementation | COMPLETE | New module + wiring + 22 passing tests |
 | D5 | Brainstem Audit | COMPLETE | Verified no routing logic leaked post-extraction |
 | D6 | Topology Document | COMPLETE | 30+ event types documented with mermaid diagrams |
-| D7-D9 | Playwright Verification | COMPLETE | Full live verification: 14/14 modules healthy, WebSocket connects, event stream active. Pre-existing Thalamus deadlock for Tier 2 messages discovered. |
+| D7-D9 | Playwright Verification | COMPLETE | Full live verification: 14/14 modules healthy, WebSocket connects, event stream active. Cognitive pipeline response confirmed end-to-end. Thalamus deadlock + localStorage overflow + WorldModelVerdict null coercion bugs discovered and FIXED. |
 | D10 | CLAUDE.md Policy | COMPLETE | Verification hierarchy policy added to CLAUDE.md |
 | D11 | Close-Out Document | COMPLETE | This document |
 
@@ -77,12 +77,20 @@ Deliver a production-ready live system with the Decision Arbiter architectural l
 - WebSocket connects and streams events (945+ broadcasts)
 - Dashboard renders with 6 nav items, chat panel, event stream
 - Cognitive Core daydream cycle verified (events flowing correctly)
-- **Pre-existing bug discovered**: Thalamus batch lock deadlock for Tier 2 messages
+- **Bug discovered + FIXED**: Thalamus batch lock deadlock for Tier 2 messages (commit `034d342`)
   - `_receive_from_plugin()` calls `_maybe_emit_batch()` inside `async with self._batch_lock:`
   - `_maybe_emit_batch()` also acquires `self._batch_lock` → deadlock
   - Affects all chat messages (classified as Tier 2 by default heuristic)
-  - Fix: move `_maybe_emit_batch()` call outside the lock block
-- **Pre-existing bug**: localStorage quota exceeded in frontend (accumulated chat history)
+  - Fix: snapshot-then-emit pattern — move `_maybe_emit_batch()` call outside the lock block
+  - 9 unit tests added for deadlock verification
+- **Bug discovered + FIXED**: WorldModelVerdict null coercion (commit `1518e21`)
+  - LLM (minimax-m2.7) returns `null` for inapplicable string fields (`revision_guidance`, `veto_reason`)
+  - Pydantic strict `str` type rejects `null`, causing `Structured output validation failed`
+  - Fix: `str | None = ""` with `field_validator(mode="before")` that coerces `None → ""`
+  - 1 unit test added for null coercion
+- **Bug discovered + FIXED**: localStorage quota overflow in frontend (commit `1518e21`)
+  - Zustand persist middleware serialized entire 5000-message state on every change, exceeding 5MB
+  - Fix: `MAX_MESSAGES=200`, `safeLocalStorage` wrapper with QuotaExceededError eviction, proactive size-based trimming
 
 ### Part E: Policy + Close-out (D10-D11)
 
@@ -156,42 +164,39 @@ Pre-existing failures (NOT related to Phase 8):
 - `src/sentient/api/server.py` — `_safe_send_json` helper
 - `src/sentient/prajna/frontal/world_model.py` — Publish only `decision.reviewed`
 - `src/sentient/prajna/frontal/cognitive_core.py` — New event subscriptions
+- `src/sentient/prajna/frontal/schemas.py` — WorldModelVerdict null coercion (`str | None` + `field_validator`)
 - `src/sentient/brainstem/gateway.py` — Updated event subscriptions
+- `src/sentient/thalamus/gateway.py` — Snapshot-then-emit pattern for batch lock deadlock fix
 - `src/sentient/main.py` — DecisionArbiter wiring
 - `config/system.yaml` — decision_arbiter configuration
+- `frontend/src/store/useSentientStore.ts` — localStorage overflow fix (MAX_MESSAGES=200, safeLocalStorage eviction)
 - `tests/unit/api/test_server_routes.py` — Envelope serialization tests
+- `tests/unit/prajna/test_schemas.py` — WorldModelVerdict null coercion test
+- `tests/unit/thalamus/test_thalamus_gateway.py` — Thalamus batch lock deadlock tests (9 tests)
 
 ## Branch Status
 
 - **Branch:** `auto/phase-8-live-delivery`
-- **Commits:** 6 commits on branch
+- **Commits:** 9 commits on branch (including 3 bug fix commits)
 - **Merge status:** NOT merged to main
 - **Tags:** None (pending merge)
 
 ## Known Issues (carried forward)
 
 1. ~~Checkpost Envelope bug~~ — **FIXED in Phase 8** (commit b150c08). Added `Envelope.from_dict()` classmethod and defensive reconstruction in all 5 handler files.
-2. InferenceGateway config — model label mapping incomplete (by design: DecisionArbiter is rule-based, no LLM needed)
-3. Frontend bundle size — 1169KB chunk warning from Phase 7 (needs code splitting)
-4. **Thalamus batch lock deadlock** — `_receive_from_plugin()` calls `_maybe_emit_batch()` inside `async with self._batch_lock:`, which also acquires `self._batch_lock`, causing permanent deadlock for Tier 2 messages. Fix: move `_maybe_emit_batch()` call outside the lock block.
-5. **Frontend localStorage overflow** — accumulated chat history exceeds 5MB localStorage limit, causing `QuotaExceededError`. Fix: add size-based eviction in Zustand store.
+2. ~~Thalamus batch lock deadlock~~ — **FIXED in Phase 8** (commit 034d342). Snapshot-then-emit pattern prevents asyncio.Lock reentrancy.
+3. ~~WorldModelVerdict null coercion~~ — **FIXED in Phase 8** (commit 1518e21). `str | None` + `field_validator` coerces LLM `null` outputs to `""`.
+4. ~~Frontend localStorage overflow~~ — **FIXED in Phase 8** (commit 1518e21). MAX_MESSAGES=200, safeLocalStorage eviction, proactive size trimming.
+5. InferenceGateway config — model label mapping incomplete (by design: DecisionArbiter is rule-based, no LLM needed)
+6. Frontend bundle size — 1169KB chunk warning from Phase 7 (needs code splitting)
 
 ## Recommendations for Phase 9
 
-1. **Fix Thalamus Batch Lock Deadlock (CRITICAL)**
-   - Move `_maybe_emit_batch()` call outside `async with self._batch_lock:` in `_receive_from_plugin()`
-   - This fixes the deadlock that prevents all chat messages from being forwarded
-   - Also affects `_forward_immediately()` which acquires `_batch_lock` then calls `_emit_current_batch()`
-
-2. **Fix Frontend localStorage Overflow**
-   - Add size-based eviction in Zustand store (clear messages > N or cap at 4MB)
-   - Consider IndexedDB for larger storage
-
-3. **Performance Optimization**
+1. **Performance Optimization**
    - Add code splitting for frontend bundle (1169KB warning)
    - Consider lazy loading for sentence_transformers
 
-4. **Architecture Evolution**
+2. **Architecture Evolution**
    - Consider EAL (External Action Layer) plugin architecture
    - Evaluate decision_arbiter persistence for audit trails
 
@@ -201,8 +206,10 @@ Pre-existing failures (NOT related to Phase 8):
 - [x] Integration tests: passing
 - [x] Ruff check: passing
 - [x] D4-specific tests: 22 passing
-- [x] Full live verification: server with D4 code, 14/14 modules healthy, WebSocket active, event stream flowing
-- [x] Thalamus deadlock bug identified (pre-existing, not Phase 8)
+- [x] Full live verification: server with D4 code, 14/14 modules healthy, WebSocket active, cognitive pipeline response confirmed end-to-end
+- [x] Thalamus deadlock bug identified and FIXED (commit 034d342)
+- [x] WorldModelVerdict null coercion bug identified and FIXED (commit 1518e21)
+- [x] Frontend localStorage overflow bug identified and FIXED (commit 1518e21)
 - [ ] CI: pending push to remote
 
 ## Architect Sign-Off
@@ -215,6 +222,6 @@ Pre-existing failures (NOT related to Phase 8):
 | D4 | APPROVED | Implementation + 22 tests passing |
 | D5 | APPROVED | Audit verified clean separation |
 | D6 | APPROVED | Topology documented |
-| D7-D9 | APPROVED | Full live verification: 14/14 modules, Thalamus deadlock discovered |
+| D7-D9 | APPROVED | Full live verification: 14/14 modules, cognitive pipeline confirmed end-to-end, 3 bugs found and fixed |
 | D10 | APPROVED | Verification hierarchy policy added to CLAUDE.md |
 | D11 | APPROVED | This document |

@@ -278,3 +278,45 @@ This will verify the decision pipeline through mock-based integration tests with
 **Overall Status: PASS with verification gap**
 
 The Playwright verification confirms the UI and event infrastructure work correctly. The decision pipeline (Decision Arbiter) cannot be verified end-to-end without a server restart, but unit tests provide coverage for all routing, revision, and veto scenarios.
+
+---
+
+## 8. Post-Restart Verification (2026-04-19, after bug fixes)
+
+**Server:** Restarted with D4+ code and all 3 bug fixes applied.
+
+### 8.1 Bug Fixes Applied
+
+| Bug | Root Cause | Fix | Commit |
+|-----|-----------|-----|--------|
+| Thalamus batch lock deadlock | `asyncio.Lock` reentrancy in `_receive_from_plugin` | Snapshot-then-emit pattern | `034d342` |
+| WorldModelVerdict null coercion | LLM returns `null` for `str` fields (`revision_guidance`, `veto_reason`) | `str \| None` + `field_validator(mode="before")` coerces `None → ""` | `1518e21` |
+| localStorage overflow | Zustand persist serializes 5000 messages exceeding 5MB | `MAX_MESSAGES=200`, `safeLocalStorage` eviction, proactive size trimming | `1518e21` |
+
+### 8.2 Post-Restart Verification Results
+
+| Check | Result | Evidence |
+|-------|--------|----------|
+| Server health | PASS | 14/14 modules healthy (including decision_arbiter) |
+| WebSocket connection | PASS | CONNECTED status, no errors |
+| Chat message sent | PASS | "Hello, this is a pipeline verification test" appeared in UI |
+| Cognitive pipeline response | PASS | AI response rendered: "Pipeline verified. I'm receiving your input and processing it through the full cognitive cycle..." |
+| Browser console errors | PASS | Zero errors (localStorage fix verified) |
+| Server log errors (WorldModelVerdict) | PASS | Zero `Structured output validation failed` errors after fix |
+| Unit tests (schema + thalamus) | PASS | 33 passing (22 schema + 11 thalamus) |
+
+### 8.3 Full Cognitive Pipeline Confirmed
+
+```
+ChatInput → Thalamus → Checkpost → QueueZone → TLP → CognitiveCore
+  → WorldModel (APPROVED, no validation errors) → DecisionArbiter
+  → Brainstem → ChatOutput → UI renders AI response
+```
+
+### 8.4 Updated Verdict
+
+**D7 (UI Functionality): PASS**
+**D8 (Event Stream): PASS** — Full decision pipeline events now verified end-to-end
+**D9 (Server Stability): PASS** — Zero errors after all 3 bug fixes applied
+
+**Overall Status: PASS** — All verification gaps resolved.
