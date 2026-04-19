@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
+from sentient.core.event_bus import EventBus, get_event_bus
 from sentient.core.module_interface import HealthPulse, ModuleInterface, ModuleStatus
 
 logger = logging.getLogger(__name__)
@@ -105,8 +106,9 @@ class InferenceGateway(ModuleInterface):
     Configuration loaded from config/inference_gateway.yaml.
     """
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any], event_bus: EventBus | None = None) -> None:
         super().__init__("inference_gateway", config)
+        self.event_bus = event_bus or get_event_bus()
         self._models: dict[str, dict[str, Any]] = config.get("models", {})
         self._routing: dict[str, Any] = config.get("routing", {})
         self._cost_tracking: dict[str, Any] = config.get("cost_tracking", {})
@@ -114,6 +116,7 @@ class InferenceGateway(ModuleInterface):
         self._total_cost_usd = 0.0
         self._call_count = 0
         self._litellm = None
+        self._recent_calls: deque[dict[str, Any]] = deque(maxlen=200)
 
     async def initialize(self) -> None:
         """Verify provider availability and load litellm."""
@@ -169,11 +172,29 @@ class InferenceGateway(ModuleInterface):
         # Build endpoint chain: primary + fallbacks
         endpoints = [spec["primary"]] + spec.get("fallback", [])
 
+        # Publish call started event
+        await self.event_bus.publish("inference.call.started", {
+            "model_label": request.model_label,
+            "primary_endpoint": endpoints[0].get("provider", "") + "/" + endpoints[0].get("model", ""),
+            "fallback_count": len(endpoints) - 1,
+        })
+
         last_error: str | None = None
         for idx, endpoint in enumerate(endpoints):
             is_fallback = idx > 0
             response = await self._try_endpoint(request, endpoint, is_fallback)
             if response.error is None:
+                # Publish call complete event
+                await self.event_bus.publish("inference.call.complete", {
+                    "model_label": request.model_label,
+                    "model_actual": response.model_used,
+                    "provider": response.provider,
+                    "duration_ms": response.latency_ms,
+                    "tokens_in": response.input_tokens,
+                    "tokens_out": response.output_tokens,
+                    "cost_usd": response.cost_usd,
+                    "fallback_used": response.fallback_used,
+                })
                 return response
             last_error = response.error
             logger.info(
@@ -182,6 +203,10 @@ class InferenceGateway(ModuleInterface):
             )
 
         # All endpoints failed
+        await self.event_bus.publish("inference.call.failed", {
+            "model_label": request.model_label,
+            "error": last_error,
+        })
         return InferenceResponse(
             text="",
             model_used="all_failed",
@@ -281,6 +306,18 @@ class InferenceGateway(ModuleInterface):
 
             metrics.record_success(latency_ms)
 
+            # Publish fallback triggered event when a fallback succeeds
+            if is_fallback:
+                await self.event_bus.publish("inference.fallback.triggered", {
+                    "model_label": request.model_label,
+                    "model_actual": model,
+                    "provider": provider,
+                    "duration_ms": latency_ms,
+                    "tokens_in": input_tokens,
+                    "tokens_out": output_tokens,
+                    "cost_usd": cost,
+                })
+
             # Post-call validation for structured output
             if request.response_format is not None:
                 # Strip markdown fences before validation — models often add them despite instructions
@@ -348,6 +385,28 @@ class InferenceGateway(ModuleInterface):
                 latency_ms=(time.time() - start) * 1000,
                 error=str(exc),
             )
+
+    def get_status(self) -> dict[str, Any]:
+        """Return full per-endpoint metrics for /api/gateway/status."""
+        endpoint_data = {}
+        for ep, m in self._metrics.items():
+            avg_latency = m.total_latency_ms / m.success_count if m.success_count > 0 else 0.0
+            endpoint_data[ep] = {
+                "success_count": m.success_count,
+                "failure_count": m.failure_count,
+                "total_latency_ms": round(m.total_latency_ms, 2),
+                "avg_latency_ms": round(avg_latency, 2),
+                "health_score": round(m.health_score(), 3),
+            }
+        return {
+            "total_calls": self._call_count,
+            "total_cost_usd": round(self._total_cost_usd, 4),
+            "endpoints": endpoint_data,
+        }
+
+    def get_recent_calls(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Return last N calls from ring buffer for /api/gateway/recent."""
+        return list(self._recent_calls)[-limit:]
 
     def health_pulse(self) -> HealthPulse:
         endpoint_health = {

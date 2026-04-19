@@ -89,7 +89,7 @@ async def build_and_start() -> tuple[LifecycleManager, Any]:
     lifecycle = LifecycleManager(event_bus)
 
     # === 1. Inference Gateway (must be first) ===
-    inference_gateway = InferenceGateway(inference_cfg)
+    inference_gateway = InferenceGateway(inference_cfg, event_bus=event_bus)
     lifecycle.register(inference_gateway, essential=True)
 
     # === 2. Memory Architecture ===
@@ -238,6 +238,7 @@ async def build_and_start() -> tuple[LifecycleManager, Any]:
         chat_output_plugin=chat_output,
         health_pulse_network=health_network,
         event_bus=event_bus,
+        inference_gateway=inference_gateway,
     )
     await api_server.start()
 
