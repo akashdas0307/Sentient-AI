@@ -42,6 +42,7 @@ from sentient.prajna.frontal.world_model import WorldModel
 from sentient.prajna.queue_zone import QueueZone
 from sentient.prajna.temporal_limbic import TemporalLimbicProcessor
 from sentient.sleep.scheduler import SleepScheduler
+from sentient.sleep.consolidation import ConsolidationEngine
 from sentient.thalamus.gateway import Thalamus
 from sentient.thalamus.plugins.chat_input import ChatInputPlugin
 
@@ -91,6 +92,14 @@ async def build_and_start() -> tuple[LifecycleManager, Any]:
     memory_cfg["embeddings"] = memory_cfg.get("embeddings") or {"model": "all-MiniLM-L6-v2"}
     memory = MemoryArchitecture(memory_cfg, event_bus)
     lifecycle.register(memory, essential=True)
+
+    # === Consolidation Engine ===
+    consolidation_engine = ConsolidationEngine(
+        memory_architecture=memory,
+        inference_gateway=inference_gateway,
+        event_bus=event_bus,
+        config=system_cfg.get("memory", {}),
+    )
 
     # === 3. Persona Manager ===
     persona = PersonaManager(system_cfg.get("persona", {}), event_bus)
@@ -152,6 +161,7 @@ async def build_and_start() -> tuple[LifecycleManager, Any]:
         system_cfg.get("sleep", {}),
         lifecycle,
         memory=memory,
+        consolidation_engine=consolidation_engine,
         event_bus=event_bus,
     )
     lifecycle.register(sleep, essential=True)

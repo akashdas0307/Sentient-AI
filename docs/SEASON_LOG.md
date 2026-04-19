@@ -90,4 +90,47 @@ Phase 5 achieved the project's primary milestone: the sentient framework had its
 - 6398e2f perf: performance baseline
 - (D7 close-out commit)
 
+---
+
+## Phase 7: Consolidation and Rebirth — 2026-04-18
+
+**Status:** COMPLETE
+**Branch:** auto/phase-7-consolidation-and-rebirth
+**Duration:** 2 sessions (Part A + Part B)
+
+### Part A: Consolidation (D1-D7)
+- D1: Sleep consolidation injected into cognitive core prompt
+- D2: Semantic memory integration (factual knowledge storage/retrieval)
+- D3: Emotional memory tags from TLP integration
+- D4: Procedural memory patterns for learned behaviors
+- D5: Consolidated knowledge injection into cognitive core
+- D6: Wetware test for consolidation cycle validation
+- D7: Part A close-out checkpoint report
+- D8: API audit and canonical route table documentation
+- D9: Backend route rebuild with WebSocket event streaming
+
+### Part B: UI Rebirth (#44-#48)
+- #44: Events page fix — WebSocket event format mismatch resolved
+- #45: Chat response pipeline — Full 8-stage EventBus chain end-to-end
+- #46: Conversation history persistence — Zustand + localStorage
+- #47: shadcn/ui component polish — 9 components, all pages refactored
+- #48: Memory graph visualization — React Flow with custom MemoryNode
+
+### Key Metrics
+| Metric | Value |
+|--------|-------|
+| API tests | 58 passing |
+| Frontend pages | 6 (Chat, Modules, Memory, Sleep, Events, MemoryGraph) |
+| React Flow nodes | Custom MemoryNode with type badges + importance bars |
+| shadcn/ui components | 9 installed |
+| Frontend stack | React 19 + TypeScript + Vite 6 + Tailwind v4 + Zustand 5 + React Flow 12 + shadcn/ui + framer-motion + recharts |
+
+### New Server Routes
+- `GET /api/memory/search` — Semantic memory search
+- `GET /api/memory/recent` — Recent memories
+- `GET /api/sleep/status` — Current sleep state
+- `GET /api/sleep/consolidations` — Consolidation history
+- Periodic health broadcast (every 10s)
+- Turn records in WebSocket reply messages
+
 *Last updated: 2026-04-18*

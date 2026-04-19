@@ -60,6 +60,9 @@ class QueueZone(ModuleInterface):
         self.batch_summary_threshold = config.get("batch_summarization", {}).get(
             "threshold_count", 20
         )
+        self.delivery_interval = config.get("delivery", {}).get(
+            "interval_seconds", 2.0
+        )
 
         self._hold_queue: deque[_QueueItem] = deque()
         self._sidebar: deque[Envelope] = deque(maxlen=20)
@@ -157,7 +160,7 @@ class QueueZone(ModuleInterface):
         """Continuously check for items to deliver and age priorities."""
         while True:
             try:
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(self.delivery_interval)
                 await self._deliver_pending()
                 if len(self._hold_queue) >= self.batch_summary_threshold:
                     await self._summarize_batch()

@@ -138,6 +138,7 @@ class Thalamus(ModuleInterface):
                 "envelope_id": envelope.envelope_id,
                 "source_type": envelope.source_type.value,
                 "priority": priority.value,
+                "envelope": envelope,
             },
         )
 

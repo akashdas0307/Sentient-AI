@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1776344457646,
+  "lastScanned": 1776449967929,
   "projectRoot": "/home/akashdas/Desktop/Sentient-AI",
   "techStack": {
     "languages": [
@@ -45,10 +45,15 @@
     "isMonorepo": false,
     "workspaces": [],
     "mainDirectories": [
+      "docs",
+      "scripts",
       "src",
       "tests"
     ],
-    "gitBranches": null
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
   },
   "customNotes": [],
   "directoryMap": {
@@ -56,7 +61,7 @@
       "path": "config",
       "purpose": "Configuration files",
       "fileCount": 2,
-      "lastAccessed": 1776344457642,
+      "lastAccessed": 1776449967924,
       "keyFiles": [
         "inference_gateway.yaml",
         "system.yaml"
@@ -65,15 +70,17 @@
     "data": {
       "path": "data",
       "purpose": "Data files",
-      "fileCount": 1,
-      "lastAccessed": 1776344457644,
-      "keyFiles": []
+      "fileCount": 2,
+      "lastAccessed": 1776449967926,
+      "keyFiles": [
+        "memory.db"
+      ]
     },
     "doc": {
       "path": "doc",
       "purpose": null,
       "fileCount": 4,
-      "lastAccessed": 1776344457644,
+      "lastAccessed": 1776449967927,
       "keyFiles": [
         "ARCHITECTURE.md",
         "CONVERSATION_SUMMARY.md",
@@ -81,68 +88,148 @@
         "PRD.md"
       ]
     },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 5,
+      "lastAccessed": 1776449967927,
+      "keyFiles": [
+        "DECISIONS.md",
+        "DEV_WORKFLOW.md",
+        "HANDOFF.md",
+        "PHASE_1_INVENTORY.md",
+        "SEASON_LOG.md"
+      ]
+    },
     "gui": {
       "path": "gui",
       "purpose": null,
       "fileCount": 2,
-      "lastAccessed": 1776344457644,
+      "lastAccessed": 1776449967927,
       "keyFiles": [
         "index.html"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 7,
+      "lastAccessed": 1776449967927,
+      "keyFiles": [
+        "check_lazy_imports.sh",
+        "coverage_per_module.sh",
+        "install_hooks.sh",
+        "pre-push",
+        "run_tests_safe.sh"
       ]
     },
     "src": {
       "path": "src",
       "purpose": "Source code",
       "fileCount": 0,
-      "lastAccessed": 1776344457645,
+      "lastAccessed": 1776449967927,
       "keyFiles": []
     },
     "tests": {
       "path": "tests",
       "purpose": "Test files",
       "fileCount": 2,
-      "lastAccessed": 1776344457645,
+      "lastAccessed": 1776449967927,
       "keyFiles": [
         "__init__.py",
-        "test_smoke.py"
+        "conftest.py"
       ]
     }
   },
   "hotPaths": [
     {
-      "path": "src/sentient/main.py",
-      "accessCount": 20,
-      "lastAccessed": 1776430774865,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/core/inference_gateway.py",
-      "accessCount": 19,
-      "lastAccessed": 1776430822994,
-      "type": "file"
-    },
-    {
-      "path": "pyproject.toml",
-      "accessCount": 17,
-      "lastAccessed": 1776430822943,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/persona/identity_manager.py",
-      "accessCount": 16,
-      "lastAccessed": 1776418768162,
-      "type": "file"
-    },
-    {
-      "path": "CLAUDE.md",
-      "accessCount": 14,
-      "lastAccessed": 1776428448455,
+      "path": "src/sentient/api/server.py",
+      "accessCount": 72,
+      "lastAccessed": 1776522619103,
       "type": "file"
     },
     {
       "path": "src/sentient/prajna/frontal/cognitive_core.py",
-      "accessCount": 14,
-      "lastAccessed": 1776430591733,
+      "accessCount": 72,
+      "lastAccessed": 1776522619319,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/core/inference_gateway.py",
+      "accessCount": 53,
+      "lastAccessed": 1776516374654,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/main.py",
+      "accessCount": 36,
+      "lastAccessed": 1776522641282,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/prajna/frontal/world_model.py",
+      "accessCount": 31,
+      "lastAccessed": 1776522641126,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/memory/architecture.py",
+      "accessCount": 30,
+      "lastAccessed": 1776516624157,
+      "type": "file"
+    },
+    {
+      "path": "config/inference_gateway.yaml",
+      "accessCount": 25,
+      "lastAccessed": 1776498775812,
+      "type": "file"
+    },
+    {
+      "path": "CLAUDE.md",
+      "accessCount": 22,
+      "lastAccessed": 1776465454455,
+      "type": "file"
+    },
+    {
+      "path": "pyproject.toml",
+      "accessCount": 18,
+      "lastAccessed": 1776512413651,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/core/event_bus.py",
+      "accessCount": 18,
+      "lastAccessed": 1776522618916,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/persona/identity_manager.py",
+      "accessCount": 17,
+      "lastAccessed": 1776465893934,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/brainstem/gateway.py",
+      "accessCount": 16,
+      "lastAccessed": 1776522656910,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/sleep/scheduler.py",
+      "accessCount": 15,
+      "lastAccessed": 1776496108206,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/prajna/queue_zone.py",
+      "accessCount": 15,
+      "lastAccessed": 1776516923575,
+      "type": "file"
+    },
+    {
+      "path": "config/system.yaml",
+      "accessCount": 15,
+      "lastAccessed": 1776522657125,
       "type": "file"
     },
     {
@@ -152,33 +239,51 @@
       "type": "file"
     },
     {
-      "path": "config/inference_gateway.yaml",
-      "accessCount": 12,
-      "lastAccessed": 1776429704536,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/memory/architecture.py",
-      "accessCount": 11,
-      "lastAccessed": 1776430583720,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/prajna/frontal/world_model.py",
-      "accessCount": 10,
-      "lastAccessed": 1776430591758,
+      "path": "src/sentient/prajna/checkpost.py",
+      "accessCount": 13,
+      "lastAccessed": 1776516920706,
       "type": "file"
     },
     {
       "path": "src/sentient/core/lifecycle.py",
-      "accessCount": 10,
-      "lastAccessed": 1776430806224,
+      "accessCount": 12,
+      "lastAccessed": 1776516383869,
       "type": "file"
     },
     {
-      "path": "src/sentient/api/server.py",
-      "accessCount": 8,
-      "lastAccessed": 1776428691102,
+      "path": "src/sentient/thalamus/plugins/chat_input.py",
+      "accessCount": 11,
+      "lastAccessed": 1776516911894,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/prajna/temporal_limbic.py",
+      "accessCount": 11,
+      "lastAccessed": 1776516917595,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/brainstem/plugins/chat_output.py",
+      "accessCount": 11,
+      "lastAccessed": 1776522657040,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/thalamus/gateway.py",
+      "accessCount": 10,
+      "lastAccessed": 1776516914947,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/core/envelope.py",
+      "accessCount": 10,
+      "lastAccessed": 1776522618740,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/prajna/frontal/harness_adapter.py",
+      "accessCount": 9,
+      "lastAccessed": 1776516935826,
       "type": "file"
     },
     {
@@ -188,39 +293,39 @@
       "type": "file"
     },
     {
+      "path": "src/sentient/health/pulse_network.py",
+      "accessCount": 8,
+      "lastAccessed": 1776471182068,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/core/module_interface.py",
+      "accessCount": 8,
+      "lastAccessed": 1776516635623,
+      "type": "file"
+    },
+    {
+      "path": "src/sentient/thalamus/heuristic_engine.py",
+      "accessCount": 8,
+      "lastAccessed": 1776516778783,
+      "type": "file"
+    },
+    {
       "path": "tests/test_smoke.py",
       "accessCount": 7,
       "lastAccessed": 1776361214940,
       "type": "file"
     },
     {
-      "path": "src/sentient/health/pulse_network.py",
+      "path": "src/sentient/memory/gatekeeper.py",
       "accessCount": 7,
-      "lastAccessed": 1776363830055,
+      "lastAccessed": 1776516588458,
       "type": "file"
     },
     {
       "path": "docs/DEV_WORKFLOW.md",
       "accessCount": 6,
       "lastAccessed": 1776369191549,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/sleep/scheduler.py",
-      "accessCount": 6,
-      "lastAccessed": 1776423846569,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/core/event_bus.py",
-      "accessCount": 6,
-      "lastAccessed": 1776429254179,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/core/module_interface.py",
-      "accessCount": 6,
-      "lastAccessed": 1776430059145,
       "type": "file"
     },
     {
@@ -233,18 +338,6 @@
       "path": "tests/core/test_inference_gateway.py",
       "accessCount": 5,
       "lastAccessed": 1776361221401,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/memory/gatekeeper.py",
-      "accessCount": 5,
-      "lastAccessed": 1776363834731,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/prajna/checkpost.py",
-      "accessCount": 4,
-      "lastAccessed": 1776358036212,
       "type": "file"
     },
     {
@@ -266,27 +359,15 @@
       "type": "file"
     },
     {
-      "path": "src/sentient/prajna/frontal/harness_adapter.py",
-      "accessCount": 4,
-      "lastAccessed": 1776369157197,
-      "type": "file"
-    },
-    {
       "path": "scripts/setup-dev.sh",
       "accessCount": 4,
       "lastAccessed": 1776369272531,
       "type": "file"
     },
     {
-      "path": "config/system.yaml",
-      "accessCount": 4,
-      "lastAccessed": 1776429239126,
-      "type": "file"
-    },
-    {
       "path": "src/sentient/health/registry.py",
-      "accessCount": 3,
-      "lastAccessed": 1776363830111,
+      "accessCount": 4,
+      "lastAccessed": 1776471182016,
       "type": "file"
     },
     {
@@ -296,57 +377,9 @@
       "type": "file"
     },
     {
-      "path": "src/sentient/brainstem/gateway.py",
-      "accessCount": 3,
-      "lastAccessed": 1776429239173,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/brainstem/plugins/chat_output.py",
-      "accessCount": 3,
-      "lastAccessed": 1776429254194,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/thalamus/plugins/chat_input.py",
-      "accessCount": 3,
-      "lastAccessed": 1776429254201,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/prajna/queue_zone.py",
-      "accessCount": 2,
-      "lastAccessed": 1776356122362,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/prajna/temporal_limbic.py",
-      "accessCount": 2,
-      "lastAccessed": 1776356122487,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/thalamus/heuristic_engine.py",
-      "accessCount": 2,
-      "lastAccessed": 1776356122540,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/thalamus/gateway.py",
-      "accessCount": 2,
-      "lastAccessed": 1776356122559,
-      "type": "file"
-    },
-    {
-      "path": "src/sentient/core/envelope.py",
-      "accessCount": 2,
-      "lastAccessed": 1776356122867,
-      "type": "file"
-    },
-    {
       "path": "src/sentient/brainstem/plugins/base.py",
-      "accessCount": 2,
-      "lastAccessed": 1776356128896,
+      "accessCount": 3,
+      "lastAccessed": 1776454155552,
       "type": "file"
     },
     {
@@ -356,15 +389,21 @@
       "type": "file"
     },
     {
-      "path": "doc/PRD.md",
-      "accessCount": 1,
-      "lastAccessed": 1776347600024,
+      "path": "doc/DESIGN_DECISIONS.md",
+      "accessCount": 2,
+      "lastAccessed": 1776465878473,
       "type": "file"
     },
     {
-      "path": "doc/DESIGN_DECISIONS.md",
+      "path": "config/identity/developmental.yaml",
+      "accessCount": 2,
+      "lastAccessed": 1776468368061,
+      "type": "file"
+    },
+    {
+      "path": "doc/PRD.md",
       "accessCount": 1,
-      "lastAccessed": 1776347600163,
+      "lastAccessed": 1776347600024,
       "type": "file"
     },
     {
@@ -377,12 +416,6 @@
       "path": "config/identity/constitutional_core.yaml",
       "accessCount": 1,
       "lastAccessed": 1776347600292,
-      "type": "file"
-    },
-    {
-      "path": "config/identity/developmental.yaml",
-      "accessCount": 1,
-      "lastAccessed": 1776347600333,
       "type": "file"
     },
     {

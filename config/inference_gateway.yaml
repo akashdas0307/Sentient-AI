@@ -119,6 +119,36 @@ models:
         max_tokens: 1024
         temperature: 0.3
 
+  # === Semantic extraction during sleep (large context) ===
+  consolidation-semantic:
+    primary:
+      provider: "ollama"
+      model: "kimi-k2.5:cloud"
+      base_url: "http://localhost:11434"
+      max_tokens: 2048
+      temperature: 0.3
+    fallback:
+      - provider: "ollama"
+        model: "glm-5.1:cloud"
+        base_url: "http://localhost:11434"
+        max_tokens: 2048
+        temperature: 0.3
+
+  # === Procedural extraction during sleep (deep reasoning) ===
+  consolidation-procedural:
+    primary:
+      provider: "ollama"
+      model: "glm-5.1:cloud"
+      base_url: "http://localhost:11434"
+      max_tokens: 2048
+      temperature: 0.3
+    fallback:
+      - provider: "ollama"
+        model: "minimax-m2.7:cloud"
+        base_url: "http://localhost:11434"
+        max_tokens: 2048
+        temperature: 0.3
+
 # Routing behavior
 routing:
   # If primary fails, try fallback chain in order

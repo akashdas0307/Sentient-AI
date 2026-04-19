@@ -150,6 +150,8 @@ class CognitiveCore(ModuleInterface):
             "max_daydream_duration_seconds", 180
         )
         self.episodic_memory_enabled = config.get("episodic_memory_enabled", True)
+        self.semantic_memory_enabled = config.get("semantic_enabled", True)
+        self.procedural_memory_enabled = config.get("procedural_enabled", True)
 
         self._current_state: CognitiveState | None = None
         self._saved_states: list[CognitiveState] = []
@@ -389,6 +391,56 @@ class CognitiveCore(ModuleInterface):
                         )
             except Exception as exc:
                 logger.warning("Episodic memory retrieval in prompt assembly failed: %s", exc)
+
+        # Consolidated knowledge block (semantic facts)
+        if self.memory and self.semantic_memory_enabled and not is_daydream:
+            try:
+                input_text = ""
+                if context and context.envelope:
+                    input_text = context.envelope.processed_content
+
+                if input_text:
+                    semantic_facts = await self.memory.retrieve_semantic(input_text, k=3)
+                    if semantic_facts:
+                        fact_lines = []
+                        for fact in semantic_facts[:3]:
+                            statement = fact.get("statement", "")
+                            confidence = fact.get("confidence", 0.5)
+                            fact_lines.append(
+                                f"- [{confidence:.1f}] {statement}"
+                            )
+                        blocks.append(
+                            "=== CONSOLIDATED KNOWLEDGE ===\n"
+                            + "\n".join(fact_lines)
+                        )
+            except Exception as exc:
+                logger.warning("Semantic memory retrieval in prompt assembly failed: %s", exc)
+
+        # Behavioral patterns block (procedural)
+        if self.memory and self.procedural_memory_enabled and not is_daydream:
+            try:
+                context_text = ""
+                if context and context.envelope:
+                    context_text = context.envelope.processed_content
+
+                if context_text:
+                    procedural_patterns = await self.memory.retrieve_procedural(context_text, k=3)
+                    if procedural_patterns:
+                        pattern_lines = []
+                        for pattern in procedural_patterns[:3]:
+                            description = pattern.get("description", "")
+                            confidence = pattern.get("confidence", 0.5)
+                            trigger = pattern.get("trigger_context", "")
+                            line = f"- [{confidence:.1f}] {description}"
+                            if trigger:
+                                line += f" (trigger: {trigger})"
+                            pattern_lines.append(line)
+                        blocks.append(
+                            "=== BEHAVIORAL PATTERNS ===\n"
+                            + "\n".join(pattern_lines)
+                        )
+            except Exception as exc:
+                logger.warning("Procedural memory retrieval in prompt assembly failed: %s", exc)
 
         # Instruction
         if is_daydream:

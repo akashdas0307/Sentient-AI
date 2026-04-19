@@ -85,6 +85,16 @@ class TestFullSystemWetware:
     @pytest.mark.asyncio
     async def test_three_turn_conversation(self, clean_memory_data, tmp_path):
         """Run a 3-turn conversation and verify cross-turn memory."""
+        # RAM Check
+        import subprocess
+        try:
+            subprocess.run(
+                "free -m | awk 'NR==2 {if ($7 < 4000) exit 1}'",
+                shell=True, check=True
+            )
+        except subprocess.CalledProcessError:
+            pytest.fail("RAM_INSUFFICIENT: Need at least 4GB free for wetware tests")
+
         import yaml
         from sentient.core.event_bus import EventBus, reset_event_bus
         from sentient.core.inference_gateway import InferenceGateway
@@ -147,6 +157,23 @@ class TestFullSystemWetware:
             vetoed_decisions.append(payload)
         await event_bus.subscribe("decision.vetoed", capture_vetoed)
 
+        # Helper for step-wise verification
+        async def wait_for_cycle_completion(core, count_before, timeout=60):
+            async def predicate():
+                while len(core._recent_cycles) <= count_before:
+                    await asyncio.sleep(0.5)
+                last_cycle = core._recent_cycles[-1]
+                while not last_cycle.completed_at:
+                    if last_cycle.error:
+                        return last_cycle
+                    await asyncio.sleep(0.5)
+                return last_cycle
+
+            try:
+                return await asyncio.wait_for(predicate(), timeout=timeout)
+            except asyncio.TimeoutError:
+                raise TimeoutError(f"Cognitive cycle did not complete within {timeout}s")
+
         # === CONVERSATION TURNS ===
         start_time = time.time()
         turn_results = []
@@ -159,8 +186,6 @@ class TestFullSystemWetware:
 
         for turn_idx, user_input in enumerate(conversation):
             turn_start = time.time()
-
-            # Track cycle count BEFORE this turn
             cycle_count_before = len(cognitive_core._recent_cycles)
 
             # Create envelope
@@ -184,51 +209,37 @@ class TestFullSystemWetware:
             # Publish tlp.enriched event (triggers CognitiveCore)
             await event_bus.publish("tlp.enriched", {"context": context})
 
-            # Wait for the reasoning cycle to complete (with timeout)
-            # The CognitiveCore processes asynchronously, so we need to wait
-            await asyncio.sleep(1)  # Give event bus time to dispatch
-
-            # Give more time for LLM calls (they can be slow)
-            max_wait = 60  # seconds per turn
-            waited = 1
-            while waited < max_wait:
-                # Check if a NEW cycle was added and completed
-                if len(cognitive_core._recent_cycles) > cycle_count_before:
-                    last_cycle = cognitive_core._recent_cycles[-1]
-                    if last_cycle.completed_at:
-                        break
-                await asyncio.sleep(2)
-                waited += 2
+            # Wait for reasoning cycle with clear timeout and fast failure on error
+            try:
+                last_cycle = await wait_for_cycle_completion(cognitive_core, cycle_count_before)
+            except Exception as e:
+                pytest.fail(f"Turn {turn_idx + 1} failed during cycle wait: {e}")
 
             turn_duration = time.time() - turn_start
 
-            # Find the cycle for this turn (last cycle that wasn't there before)
-            last_cycle = None
-            if len(cognitive_core._recent_cycles) > cycle_count_before:
-                last_cycle = cognitive_core._recent_cycles[-1]
+            # Step-wise assertion: verify turn completed without error immediately
+            assert last_cycle.error is None, f"Turn {turn_idx + 1} reasoning error: {last_cycle.error}"
+            assert last_cycle.completed_at is not None, f"Turn {turn_idx + 1} did not complete"
 
             turn_result = {
                 "turn": turn_idx + 1,
                 "input": user_input,
                 "duration_s": round(turn_duration, 2),
-                "cycle_error": last_cycle.error if last_cycle else "no_cycle",
-                "decisions": last_cycle.decisions if last_cycle else [],
-                "monologue": last_cycle.monologue if last_cycle else "",
+                "cycle_error": last_cycle.error,
+                "decisions": last_cycle.decisions,
+                "monologue": last_cycle.monologue,
             }
             turn_results.append(turn_result)
 
             print(f"\n=== Turn {turn_idx + 1} ({turn_duration:.1f}s) ===")
             print(f"Input: {user_input}")
-            if last_cycle and not last_cycle.error:
-                for d in last_cycle.decisions:
-                    print(f"Decision: {d.get('type', '?')} → {d.get('text', d.get('rationale', '?'))[:100]}")
-            else:
-                print(f"Error: {turn_result['cycle_error']}")
+            for d in last_cycle.decisions:
+                print(f"Decision: {d.get('type', '?')} → {d.get('text', d.get('rationale', '?'))[:100]}")
 
         total_duration = time.time() - start_time
         peak_rss = get_peak_rss_mb()
 
-        # === ASSERTIONS ===
+        # === FINAL ASSERTIONS ===
 
         # 1. All turns completed without errors
         for tr in turn_results:
