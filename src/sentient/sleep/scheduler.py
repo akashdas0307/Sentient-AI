@@ -21,6 +21,8 @@ from sentient.core.module_interface import HealthPulse, ModuleInterface, ModuleS
 
 if TYPE_CHECKING:
     from sentient.sleep.contradiction_resolver import ContradictionResolver
+    from sentient.sleep.identity_drift_detector import IdentityDriftDetector
+    from sentient.sleep.procedural_refiner import ProceduralRefiner
     from sentient.sleep.wm_calibrator import WMCalibrator
 
 logger = logging.getLogger(__name__)
@@ -45,6 +47,8 @@ class SleepScheduler(ModuleInterface):
         consolidation_engine: Any | None = None,
         contradiction_resolver: "ContradictionResolver | None" = None,
         wm_calibrator: "WMCalibrator | None" = None,
+        procedural_refiner: "ProceduralRefiner | None" = None,
+        identity_drift_detector: "IdentityDriftDetector | None" = None,
         event_bus: EventBus | None = None,
     ) -> None:
         super().__init__("sleep_scheduler", config)
@@ -54,6 +58,8 @@ class SleepScheduler(ModuleInterface):
         self.consolidation_engine = consolidation_engine
         self.contradiction_resolver = contradiction_resolver
         self.wm_calibrator = wm_calibrator
+        self.procedural_refiner = procedural_refiner
+        self.identity_drift_detector = identity_drift_detector
 
         self.min_hours = config.get("duration", {}).get("min_hours", 6)
         self.max_hours = config.get("duration", {}).get("max_hours", 12)
@@ -204,14 +210,15 @@ class SleepScheduler(ModuleInterface):
         Per ARCHITECTURE.md §3.5, seven jobs run here:
           1. Memory consolidation (progressive summarization) — Job 1 (active)
           2. Contradiction resolution — Job 2 (active, D4)
-          3. Procedural memory refinement — Job 3 (stub)
+          3. Procedural memory refinement — Job 3 (active, D5)
           4. World Model Journal calibration — Job 4 (active, D4)
-          5. Identity drift detection — Job 5 (stub)
+          5. Identity drift detection — Job 5 (active, D5)
           6. Trait discovery — Job 6 (stub)
           7. Offspring evaluation (Phase 3) — Job 7 (stub)
 
         MVS: runs ConsolidationEngine for job 1, ContradictionResolver for job 2,
-        and WMCalibrator for job 4. Others are stubs.
+        ProceduralRefiner for job 3, WMCalibrator for job 4, and IdentityDriftDetector
+        for job 5. Others are stubs.
         """
         await self.event_bus.publish(
             "sleep.deep_consolidation.start",
@@ -242,7 +249,13 @@ class SleepScheduler(ModuleInterface):
             except Exception as exc:
                 logger.exception("Contradiction resolution error: %s", exc)
 
-        # await self._job_procedural_refinement()       # Phase 2
+        # Job 3: Procedural Refinement (D5)
+        if self.procedural_refiner:
+            try:
+                result = await self.procedural_refiner.refine()
+                logger.info("Procedural refinement: %s", result)
+            except Exception as exc:
+                logger.exception("Procedural refinement error: %s", exc)
 
         # Job 4: WM Calibration (D4)
         if self.wm_calibrator:
@@ -252,7 +265,14 @@ class SleepScheduler(ModuleInterface):
             except Exception as exc:
                 logger.exception("WM calibration error: %s", exc)
 
-        # await self._job_identity_drift_detection()    # Phase 2
+        # Job 5: Identity Drift Detection (D5)
+        if self.identity_drift_detector:
+            try:
+                result = await self.identity_drift_detector.detect_drift()
+                logger.info("Identity drift detection: %s", result)
+            except Exception as exc:
+                logger.exception("Identity drift detection error: %s", exc)
+
         # await self._job_trait_discovery()             # Phase 2
         # await self._job_offspring_evaluation()        # Phase 3
 

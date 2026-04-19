@@ -45,6 +45,8 @@ from sentient.prajna.temporal_limbic import TemporalLimbicProcessor
 from sentient.sleep.scheduler import SleepScheduler
 from sentient.sleep.consolidation import ConsolidationEngine
 from sentient.sleep.contradiction_resolver import ContradictionResolver
+from sentient.sleep.identity_drift_detector import IdentityDriftDetector
+from sentient.sleep.procedural_refiner import ProceduralRefiner
 from sentient.sleep.wm_calibrator import WMCalibrator
 from sentient.thalamus.gateway import Thalamus
 from sentient.thalamus.plugins.chat_input import ChatInputPlugin
@@ -181,6 +183,19 @@ async def build_and_start() -> tuple[LifecycleManager, Any]:
         event_bus=event_bus,
         config=system_cfg.get("sleep", {}).get("wm_calibration", {}),
     )
+    # Instantiate procedural refiner
+    procedural_refiner = ProceduralRefiner(
+        memory=memory,
+        event_bus=event_bus,
+        config=system_cfg.get("sleep", {}).get("procedural_refinement", {}),
+    )
+    # Instantiate identity drift detector
+    identity_drift_detector = IdentityDriftDetector(
+        persona=persona,
+        memory=memory,
+        event_bus=event_bus,
+        config=system_cfg.get("sleep", {}).get("identity_drift", {}),
+    )
 
     sleep = SleepScheduler(
         system_cfg.get("sleep", {}),
@@ -189,6 +204,8 @@ async def build_and_start() -> tuple[LifecycleManager, Any]:
         consolidation_engine=consolidation_engine,
         contradiction_resolver=contradiction_resolver,
         wm_calibrator=wm_calibrator,
+        procedural_refiner=procedural_refiner,
+        identity_drift_detector=identity_drift_detector,
         event_bus=event_bus,
     )
     lifecycle.register(sleep, essential=True)

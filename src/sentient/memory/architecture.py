@@ -138,6 +138,16 @@ CREATE TABLE IF NOT EXISTS world_model_calibration (
     calibrated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_wm_cal_cycle ON world_model_calibration(cycle_id);
+
+CREATE TABLE IF NOT EXISTS identity_snapshots (
+    id TEXT PRIMARY KEY,
+    snapshot_data TEXT NOT NULL,
+    personality_traits TEXT NOT NULL DEFAULT '{}',
+    maturity_stage TEXT NOT NULL,
+    self_understanding TEXT NOT NULL DEFAULT '{}',
+    snapshot_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_identity_snap_at ON identity_snapshots(snapshot_at);
 """
 
 

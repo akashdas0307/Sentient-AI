@@ -89,6 +89,17 @@ sleep:
   wm_calibration:
     enabled: true
     max_adjustment_per_cycle: 0.05
+  procedural_refinement:
+    enabled: true
+    reinforcement_threshold: 5
+    stale_days: 30
+    archive_threshold: 0.1
+    confidence_bump: 0.02
+    confidence_decay: 0.01
+  identity_drift:
+    enabled: true
+    drift_threshold: 0.3
+    drift_window_days: 7
 
 api:
   host: 0.0.0.0
