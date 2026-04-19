@@ -345,7 +345,15 @@ class CognitiveCore(ModuleInterface):
                 )
 
             # Generate memory candidates
-            for memory_candidate in cycle.reflection.get("memory_candidates", []):
+            for raw_candidate in cycle.reflection.get("memory_candidates", []):
+                # Normalize to dict — may be a MemoryCandidate Pydantic model or raw dict
+                memory_candidate = (
+                    raw_candidate.model_dump()
+                    if hasattr(raw_candidate, "model_dump")
+                    else dict(raw_candidate)
+                )
+                if is_daydream:
+                    memory_candidate.setdefault("metadata", {})["origin"] = "daydream"
                 await self.event_bus.publish(
                     "memory.candidate",
                     {
@@ -360,8 +368,7 @@ class CognitiveCore(ModuleInterface):
             cycle.completed_at = time.time()
 
             # Store episodic memory of this turn (if enabled)
-            if (self.memory and self.episodic_memory_enabled
-                    and not is_daydream and cycle.monologue):
+            if self.memory and self.episodic_memory_enabled and cycle.monologue:
                 try:
                     # Build a concise turn summary for storage
                     decision_summary = ""
@@ -378,11 +385,14 @@ class CognitiveCore(ModuleInterface):
                         memory_content += f"\nResponse: {decision_summary}" if memory_content else f"Response: {decision_summary}"
 
                     if memory_content:
-                        await self.memory.store({
+                        store_data = {
                             "type": "episodic",
                             "content": memory_content,
                             "importance": cycle.reflection.get("novelty", 0.5),
-                        })
+                        }
+                        if is_daydream:
+                            store_data.setdefault("metadata", {})["origin"] = "daydream"
+                        await self.memory.store(store_data)
                 except Exception as exc:
                     logger.warning("Episodic memory storage failed: %s", exc)
 

@@ -288,12 +288,25 @@ class MemoryArchitecture(ModuleInterface):
             except Exception as exc:
                 logger.warning("Semantic similarity check failed: %s", exc)
 
-        # Gatekeeper decision
+        # Gatekeeper decision — use lower importance threshold for daydream-origin memories
+        original_threshold = None
+        metadata = candidate.get("metadata", {})
+        if metadata.get("origin") == "daydream":
+            daydream_threshold = self.gatekeeper.importance_threshold  # default 0.3
+            # Use 0.2 or the configured daydream_min_importance
+            config_threshold = self.config.get("daydream_min_importance", 0.2)
+            original_threshold = self.gatekeeper.importance_threshold
+            self.gatekeeper.importance_threshold = min(daydream_threshold, config_threshold)
+
         decision = self.gatekeeper.evaluate(
             candidate,
             existing_by_hash=existing_by_hash,
             similar_memories=similar_memories,
         )
+
+        # Restore original threshold
+        if original_threshold is not None:
+            self.gatekeeper.importance_threshold = original_threshold
 
         if decision.action == "skip":
             logger.debug("Gatekeeper skipped memory: %s", decision.reason)
@@ -622,6 +635,38 @@ class MemoryArchitecture(ModuleInterface):
                 "SELECT COUNT(*) as c FROM memories WHERE is_archived = 0",
             ).fetchone()
         return row["c"] if row else 0
+
+    async def has_daydreamed_recently(self, hours: float = 1.0) -> bool:
+        """Check if any daydream-origin memories exist within the given time window.
+
+        Args:
+            hours: Time window in hours (default 1.0). Memories older than this
+                window are not considered.
+
+        Returns:
+            True if at least one episodic memory with origin="daydream" exists
+            within the time window; False otherwise.
+        """
+        if not self._conn:
+            return False
+        cutoff = time.time() - (hours * 3600)
+        try:
+            # Use json_extract on the metadata column to find origin="daydream"
+            row = self._conn.execute(
+                """
+                SELECT 1 FROM memories
+                WHERE memory_type = ?
+                  AND created_at >= ?
+                  AND is_archived = 0
+                  AND json_extract(metadata, '$.origin') = 'daydream'
+                LIMIT 1
+                """,
+                (MemoryType.EPISODIC.value, cutoff),
+            ).fetchone()
+            return row is not None
+        except Exception as exc:
+            logger.warning("has_daydreamed_recently check failed: %s", exc)
+            return False
 
     def health_pulse(self) -> HealthPulse:
         total = 0
