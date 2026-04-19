@@ -69,6 +69,21 @@ A change is "done" only when ALL of these are true:
 4. **SESSION.md reflects what was changed** — append a summary block
 5. **The diff is under 300 lines** — anything larger requires a handoff to human
 
+### Verification Hierarchy Policy
+
+Before a phase can be merged to main, it must pass ALL of these checks in order:
+
+1. **Unit tests pass** — `pytest tests/unit -v` exits 0
+2. **Integration tests pass** — `pytest tests/integration -v` exits 0
+3. **Lint passes** — `ruff check src/ tests/` exits 0
+4. **Live verification** (for any phase touching API or frontend):
+   - Server starts without errors
+   - Dashboard renders and WebSocket connects
+   - Feature-specific event flow verified via Playwright or manual inspection
+5. **No new test regressions** — any previously-passing test that now fails must be resolved or explicitly waived
+
+If live verification requires a server restart with new code, document the gap and schedule a follow-up verification.
+
 ## Session Lifecycle
 
 ### On session start

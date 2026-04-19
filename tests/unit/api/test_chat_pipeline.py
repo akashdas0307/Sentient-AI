@@ -17,6 +17,7 @@ from sentient.core.event_bus import get_event_bus, reset_event_bus
 from sentient.core.inference_gateway import InferenceGateway
 from sentient.prajna.checkpost import Checkpost
 from sentient.prajna.frontal.cognitive_core import CognitiveCore
+from sentient.prajna.frontal.decision_arbiter import DecisionArbiter
 from sentient.prajna.frontal.world_model import WorldModel
 from sentient.prajna.queue_zone import QueueZone
 from sentient.prajna.temporal_limbic import TemporalLimbicProcessor
@@ -110,6 +111,7 @@ async def full_pipeline():
     tlp = TemporalLimbicProcessor(config["tlp"], mock_gateway, event_bus=event_bus)
     cognitive_core = CognitiveCore(config["cognitive_core"], mock_gateway, event_bus=event_bus)
     world_model = WorldModel(config["world_model"], mock_gateway, event_bus=event_bus)
+    decision_arbiter = DecisionArbiter(config.get("decision_arbiter", {}), event_bus)
     brainstem = Brainstem(config["brainstem"], event_bus)
 
     # Register modules
@@ -119,6 +121,7 @@ async def full_pipeline():
     await tlp.initialize()
     await cognitive_core.initialize()
     await world_model.initialize()
+    await decision_arbiter.initialize()
     await brainstem.initialize()
 
     # Plugins
@@ -134,6 +137,7 @@ async def full_pipeline():
     await tlp.start()
     await cognitive_core.start()
     await world_model.start()
+    await decision_arbiter.start()
     await brainstem.start()
 
     # API Server
@@ -161,6 +165,7 @@ async def full_pipeline():
         "gateway": mock_gateway,
         "thalamus": thalamus,
         "queue_zone": queue_zone,
+        "decision_arbiter": decision_arbiter,
     }
 
 
@@ -219,7 +224,8 @@ async def test_full_pipeline_step_by_step(full_pipeline):
         "tlp.enriched",
         "cognitive.cycle.start",
         "decision.proposed",
-        "decision.approved",
+        "decision.reviewed",
+        "brainstem.output_approved",
         "action.executed"
     }
 
@@ -236,7 +242,8 @@ async def test_full_pipeline_step_by_step(full_pipeline):
     assert "tlp.enriched" in received_events
     assert "cognitive.cycle.start" in received_events
     assert "decision.proposed" in received_events
-    assert "decision.approved" in received_events
+    assert "decision.reviewed" in received_events
+    assert "brainstem.output_approved" in received_events
     assert "action.executed" in received_events
 
     # 2. Check ChatOutputPlugin queue
@@ -261,12 +268,13 @@ async def test_full_pipeline_step_by_step(full_pipeline):
     drain_task.cancel()
 
     # Verify WS received the reply
-    mock_ws.send_json.assert_called()
-    # Check if any call contains the reply
+    mock_ws.send_text.assert_called()
+    # _safe_send_json sends JSON strings via send_text, so parse them
     found_reply = False
-    for call in mock_ws.send_json.call_args_list:
-        if call[0][0]["type"] == "reply":
-            assert "Hello! How can I help you today?" in call[0][0]["text"]
+    for call in mock_ws.send_text.call_args_list:
+        msg = json.loads(call[0][0])
+        if msg["type"] == "reply":
+            assert "Hello! How can I help you today?" in msg["text"]
             found_reply = True
             break
     assert found_reply, "No 'reply' message sent to WebSocket"

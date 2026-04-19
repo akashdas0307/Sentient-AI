@@ -77,6 +77,14 @@ world_model:
     initial_threshold: 0.7
     minimum_threshold: 0.4
 
+# Decision Arbiter configuration
+decision_arbiter:
+  max_revisions: 2
+  escalate_strategy: "approve_with_flag"
+  veto_fallback_template: "I need to think about that differently — could you rephrase?"
+  ethics_escalation_threshold: 0.3
+  stale_turn_ttl_seconds: 300
+
 # Memory configuration
 memory:
   storage:

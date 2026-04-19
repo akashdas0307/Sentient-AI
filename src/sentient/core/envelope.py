@@ -165,8 +165,88 @@ class Envelope:
             "topic_tags": self.topic_tags,
             "intent_tags": self.intent_tags,
             "emotional_tags": self.emotional_tags,
+            "checkpost_processed": self.checkpost_processed,
+            "tlp_enriched": self.tlp_enriched,
             "significance": self.significance,
             "related_memory_ids": self.related_memory_ids,
             "confidence": self.confidence,
             "processing_notes": self.processing_notes,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Envelope:
+        """Reconstruct an Envelope from a dict (e.g., after JSON deserialization).
+
+        Handles nested enums and defensively fills missing fields with sensible defaults.
+        """
+        # Resolve source_type enum (can be string or int from dataclasses.asdict)
+        source_type_val = data.get("source_type")
+        if isinstance(source_type_val, str):
+            try:
+                source_type = SourceType(source_type_val)
+            except ValueError:
+                source_type = SourceType.CHAT
+        elif isinstance(source_type_val, int):
+            try:
+                source_type = SourceType(source_type_val)
+            except ValueError:
+                source_type = SourceType.CHAT
+        else:
+            source_type = source_type_val or SourceType.CHAT
+
+        # Resolve trust_level enum (can be string or int)
+        trust_val = data.get("trust_level")
+        if isinstance(trust_val, str):
+            try:
+                trust_level = TrustLevel(trust_val)
+            except ValueError:
+                trust_level = TrustLevel.SYSTEM
+        elif isinstance(trust_val, int):
+            try:
+                trust_level = TrustLevel(trust_val)
+            except ValueError:
+                trust_level = TrustLevel.SYSTEM
+        else:
+            trust_level = trust_val or TrustLevel.SYSTEM
+
+        # Resolve priority enum (can be string or int)
+        priority_val = data.get("priority")
+        if isinstance(priority_val, str):
+            try:
+                priority = Priority(priority_val)
+            except ValueError:
+                priority = Priority.TIER_3_NORMAL
+        elif isinstance(priority_val, int):
+            try:
+                priority = Priority(priority_val)
+            except ValueError:
+                priority = Priority.TIER_3_NORMAL
+        else:
+            priority = priority_val or Priority.TIER_3_NORMAL
+
+        return cls(
+            envelope_id=data.get("envelope_id", ""),
+            parent_id=data.get("parent_id"),
+            source_type=source_type,
+            plugin_name=data.get("plugin_name", ""),
+            sender_identity=data.get("sender_identity"),
+            trust_level=trust_level,
+            priority=priority,
+            created_at=data.get("created_at", 0.0),
+            expires_at=data.get("expires_at"),
+            received_at=data.get("received_at"),
+            delivered_at=data.get("delivered_at"),
+            raw_content=data.get("raw_content"),
+            processed_content=data.get("processed_content", ""),
+            metadata=data.get("metadata", {}),
+            entity_tags=data.get("entity_tags", []),
+            topic_tags=data.get("topic_tags", []),
+            intent_tags=data.get("intent_tags", []),
+            emotional_tags=data.get("emotional_tags", {}),
+            checkpost_processed=data.get("checkpost_processed", False),
+            tlp_enriched=data.get("tlp_enriched", False),
+            significance=data.get("significance", {}),
+            related_memory_ids=data.get("related_memory_ids", []),
+            confidence=data.get("confidence", 1.0),
+            processing_notes=data.get("processing_notes", []),
+        )

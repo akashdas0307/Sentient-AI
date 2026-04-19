@@ -51,3 +51,9 @@ frontend/dist/
 
 .omc/
 .playwright-mcp/
+.omx/
+
+# Screenshots (runtime artifacts)
+modules-page*.png
+playwright-report/
+test-results/

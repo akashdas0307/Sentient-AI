@@ -50,7 +50,8 @@ class Checkpost(ModuleInterface):
 
     async def _handle_input(self, payload: dict[str, Any]) -> None:
         """Process an envelope from the Thalamus."""
-        envelope: Envelope = payload["envelope"]
+        raw_envelope = payload["envelope"]
+        envelope: Envelope = raw_envelope if isinstance(raw_envelope, Envelope) else Envelope.from_dict(raw_envelope)
         try:
             await self._process(envelope)
             self._processed_count += 1

@@ -97,14 +97,16 @@ class QueueZone(ModuleInterface):
     # === Receiving ===
 
     async def _receive_envelope_event(self, payload: dict[str, Any]) -> None:
-        envelope: Envelope = payload["envelope"]
+        raw_envelope = payload["envelope"]
+        envelope: Envelope = raw_envelope if isinstance(raw_envelope, Envelope) else Envelope.from_dict(raw_envelope)
         await self.enqueue(envelope)
 
     async def _receive_internal_event(self, payload: dict[str, Any]) -> None:
         """Internal sources (Limbic, Health, Dream, World Model, etc.)
         publish to 'internal.queue_item' with an envelope payload.
         """
-        envelope: Envelope = payload["envelope"]
+        raw_envelope = payload["envelope"]
+        envelope: Envelope = raw_envelope if isinstance(raw_envelope, Envelope) else Envelope.from_dict(raw_envelope)
         await self.enqueue(envelope)
 
     async def enqueue(self, envelope: Envelope) -> None:

@@ -9,7 +9,10 @@ Reference: DESIGN_DECISIONS.md DD-019, ARCHITECTURE.md §5
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import datetime
 import logging
+from enum import Enum
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -17,6 +20,45 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 EventHandler = Callable[[dict[str, Any]], Awaitable[None]]
+
+
+def _to_json_safe(obj: Any) -> Any:
+    """Recursively convert a Python object to JSON-safe types.
+
+    Handles dataclasses, Enums, datetime, sets, and duck-typed objects
+    with a ``to_dict`` method (e.g. Envelope).
+    """
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+
+    if isinstance(obj, dict):
+        return {k: _to_json_safe(v) for k, v in obj.items()}
+
+    if isinstance(obj, (list, tuple)):
+        return [_to_json_safe(item) for item in obj]
+
+    if isinstance(obj, set):
+        return [_to_json_safe(item) for item in obj]
+
+    if isinstance(obj, datetime.datetime):
+        return obj.isoformat()
+
+    if isinstance(obj, datetime.date):
+        return obj.isoformat()
+
+    if isinstance(obj, Enum):
+        return obj.value
+
+    if dataclasses.is_dataclass(obj):
+        return _to_json_safe(dataclasses.asdict(obj))
+
+    # Duck-type check for objects with to_dict (e.g. Envelope)
+    if hasattr(obj, "to_dict"):
+        return _to_json_safe(obj.to_dict())
+
+    # Fallback for unknown types
+    logger.warning("Non-serializable object in event bus: %s", type(obj).__name__)
+    return repr(obj)
 
 
 class EventBus:
@@ -32,11 +74,11 @@ class EventBus:
       - cognitive.cycle.complete  — Cognitive Core finished a cycle
       - cognitive.daydream.start  — Daydream session began
       - cognitive.daydream.end    — Daydream session ended
-      - cognitive.reprocess       — World Model requested revision, routing back to Cognitive Core
+      - cognitive.revise_requested — Decision Arbiter routed a revision back to Cognitive Core
+      - cognitive.veto_handled    — Decision Arbiter handled a veto and produced fallback
       - decision.proposed         — Cognitive Core proposed a decision
-      - decision.reviewed         — World Model reviewed a decision
-      - decision.approved         — Decision approved for execution
-      - decision.vetoed           — Decision vetoed by World Model
+      - decision.reviewed         — World Model reviewed a decision (flat payload, no dataclass)
+      - brainstem.output_approved — Decision Arbiter approved a decision for Brainstem execution
       - action.executed           — Brainstem completed an action
       - memory.candidate          — Memory write candidate from Cognitive Core
       - memory.stored             — Memory successfully stored
@@ -48,6 +90,7 @@ class EventBus:
       - sleep.wake                — System woke from sleep
       - attention.summary.update  — Frontal Processor published attention summary
       - eal.environment.change    — EAL detected environmental change
+      - decision_arbiter.veto    — Telemetry: Decision Arbiter handled a veto
     """
 
     def __init__(self) -> None:
@@ -77,6 +120,9 @@ class EventBus:
                 "sequence": self._event_count,
                 **payload,
             }
+
+        # Sanitize before any subscriber receives it
+        event_payload = _to_json_safe(event_payload)
 
         # Get subscribers (snapshot to avoid mutation issues)
         handlers = list(self._subscribers.get(event_type, []))

@@ -32,9 +32,40 @@ from typing import Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
-from sentient.core.event_bus import EventBus, get_event_bus
+from sentient.core.event_bus import EventBus, get_event_bus, _to_json_safe
 
 logger = logging.getLogger(__name__)
+
+
+async def _safe_send_json(websocket, data) -> bool:
+    """Send data via WebSocket using JSON, with belt-and-suspenders serialization.
+
+    Runs _to_json_safe() then json.dumps() to ensure serializability.
+    Falls back to repr() for any remaining non-serializable types.
+    Returns True on success, False on fallback.
+    """
+    try:
+        safe_data = _to_json_safe(data)
+        json_string = json.dumps(safe_data)
+        await websocket.send_text(json_string)
+        return True
+    except (TypeError, ValueError) as exc:
+        logger.warning(
+            "JSON serialization failed for type %s: %s. Retrying with fallback repr.",
+            type(data).__name__,
+            exc,
+        )
+        try:
+            # Last-chance fallback: use repr() for anything still non-serializable
+            fallback_data = repr(data)
+            await websocket.send_text(fallback_data)
+            return False
+        except Exception:
+            logger.error(
+                "All JSON serialization attempts failed for data type %s",
+                type(data).__name__,
+            )
+            return False
 
 
 class TurnRecord:
@@ -296,7 +327,7 @@ class APIServer:
             try:
                 # Send health snapshot on connect
                 health = self.health_network.snapshot()
-                await websocket.send_json({
+                await _safe_send_json(websocket, {
                     "type": "health",
                     "data": health,
                     "health": health,
@@ -304,7 +335,7 @@ class APIServer:
                 })
 
                 # Send welcome message
-                await websocket.send_json({
+                await _safe_send_json(websocket, {
                     "type": "welcome",
                     "text": "Connected to Sentient Framework.",
                     "timestamp": time.time(),
@@ -312,7 +343,7 @@ class APIServer:
 
                 # Send recent events for backfill
                 for event in list(self._event_buffer):
-                    await websocket.send_json(event)
+                    await _safe_send_json(websocket, event)
 
                 # Keep connection alive
                 while True:
@@ -322,7 +353,7 @@ class APIServer:
                             parsed = json.loads(data)
                             result = await self._handle_ws_message(parsed, time.time())
                             if result:
-                                await websocket.send_json(result)
+                                await _safe_send_json(websocket, result)
                         except json.JSONDecodeError:
                             pass
                     except WebSocketDisconnect:
@@ -452,7 +483,7 @@ class APIServer:
                 dead = set()
                 for ws in self._ws_clients:
                     try:
-                        await ws.send_json(reply_msg)
+                        await _safe_send_json(ws, reply_msg)
                     except Exception:
                         dead.add(ws)
                 self._ws_clients -= dead
@@ -494,7 +525,7 @@ class APIServer:
         dead = set()
         for ws in self._ws_clients:
             try:
-                await ws.send_json(event_msg)
+                await _safe_send_json(ws, event_msg)
             except Exception:
                 dead.add(ws)
         self._ws_clients -= dead
@@ -519,7 +550,7 @@ class APIServer:
                     dead = set()
                     for ws in self._ws_clients:
                         try:
-                            await ws.send_json(msg)
+                            await _safe_send_json(ws, msg)
                         except Exception:
                             dead.add(ws)
                     self._ws_clients -= dead

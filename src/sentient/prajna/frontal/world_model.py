@@ -139,75 +139,28 @@ class WorldModel(ModuleInterface):
                 "timestamp": time.time(),
             })
 
-            # Publish the review result
+            # Publish the flattened review result (no raw dataclass in payload)
+            dimension_assessments = verdict.dimension_assessments
+            if hasattr(dimension_assessments, 'model_dump'):
+                dimension_assessments = dimension_assessments.model_dump()
+            elif hasattr(dimension_assessments, '__dict__'):
+                dimension_assessments = dimension_assessments.__dict__
+
             await self.event_bus.publish(
                 "decision.reviewed",
                 {
                     "cycle_id": cycle_id,
+                    "turn_id": payload.get("turn_id", cycle_id),
                     "decision": decision,
-                    "verdict": verdict,
+                    "verdict": verdict.verdict,
+                    "dimension_assessments": dimension_assessments,
+                    "advisory_notes": verdict.advisory_notes,
+                    "revision_guidance": verdict.revision_guidance,
+                    "veto_reason": verdict.veto_reason,
+                    "confidence": verdict.confidence,
+                    "revision_count": revision_count,
                 },
             )
-
-            # Route based on verdict
-            if verdict.verdict in ("approved", "advisory"):
-                await self.event_bus.publish(
-                    "decision.approved",
-                    {
-                        "cycle_id": cycle_id,
-                        "decision": decision,
-                        "advisory_notes": verdict.advisory_notes,
-                    },
-                )
-            elif verdict.verdict == "vetoed":
-                await self.event_bus.publish(
-                    "decision.vetoed",
-                    {
-                        "cycle_id": cycle_id,
-                        "decision": decision,
-                        "reason": verdict.veto_reason,
-                    },
-                )
-                logger.info(
-                    "World Model VETOED decision (cycle=%s, type=%s): %s",
-                    cycle_id, decision.get("type"), verdict.veto_reason,
-                )
-            elif verdict.verdict == "revision_requested":
-                revision_guidance = (
-                    verdict.revision_guidance
-                    if hasattr(verdict, "revision_guidance")
-                    else ""
-                )
-                if revision_count < 2:
-                    # Route back to Cognitive Core for re-processing
-                    logger.info(
-                        "World Model requests revision (cycle=%s, attempt=%d/2)",
-                        cycle_id, revision_count + 1,
-                    )
-                    await self.event_bus.publish(
-                        "cognitive.reprocess",
-                        {
-                            "cycle_id": cycle_id,
-                            "decision": decision,
-                            "verdict": verdict,
-                            "revision_count": revision_count + 1,
-                            "revision_guidance": revision_guidance,
-                        },
-                    )
-                else:
-                    # Hard cap hit — override to approved
-                    logger.warning(
-                        "world_model.revision_cap_hit: cycle=%s exceeded 2 revisions, overriding to approved",
-                        cycle_id,
-                    )
-                    await self.event_bus.publish(
-                        "decision.approved",
-                        {
-                            "cycle_id": cycle_id,
-                            "decision": decision,
-                            "advisory_notes": f"Revision cap exceeded (2 attempts). {verdict.advisory_notes}",
-                        },
-                    )
 
         except Exception as exc:
             logger.exception("World Model review error: %s", exc)

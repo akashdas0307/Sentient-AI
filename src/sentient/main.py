@@ -39,6 +39,7 @@ from sentient.prajna.checkpost import Checkpost
 from sentient.prajna.frontal.cognitive_core import CognitiveCore
 from sentient.prajna.frontal.harness_adapter import HarnessAdapter
 from sentient.prajna.frontal.world_model import WorldModel
+from sentient.prajna.frontal.decision_arbiter import DecisionArbiter
 from sentient.prajna.queue_zone import QueueZone
 from sentient.prajna.temporal_limbic import TemporalLimbicProcessor
 from sentient.sleep.scheduler import SleepScheduler
@@ -152,7 +153,14 @@ async def build_and_start() -> tuple[LifecycleManager, Any]:
     lifecycle.register(world_model)
     lifecycle.register(harness_adapter)
 
-    # === 7. Brainstem ===
+    # === 7. Brainstem + Decision Arbiter ===
+    # Decision Arbiter sits between World Model and Brainstem to own routing authority
+    decision_arbiter = DecisionArbiter(
+        system_cfg.get("decision_arbiter", {}),
+        event_bus=event_bus,
+    )
+    lifecycle.register(decision_arbiter)
+
     brainstem = Brainstem(system_cfg.get("brainstem", {}), event_bus)
     lifecycle.register(brainstem)
 

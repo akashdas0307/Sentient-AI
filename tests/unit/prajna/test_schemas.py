@@ -210,6 +210,19 @@ def test_world_model_verdict_roundtrip() -> None:
     assert validated.dimension_assessments.feasibility.score == 0.8
 
 
+def test_world_model_verdict_null_fields_coerced() -> None:
+    """WorldModelVerdict coerces null revision_guidance/veto_reason to empty string.
+
+    LLMs (especially minimax) return null for inapplicable string fields
+    instead of empty string. The schema must accept null and coerce to "".
+    """
+    json_str = '{"verdict": "approved", "revision_guidance": null, "veto_reason": null}'
+    validated = WorldModelVerdict.model_validate_json(json_str)
+    assert validated.verdict == "approved"
+    assert validated.revision_guidance == ""
+    assert validated.veto_reason == ""
+
+
 def test_invalid_verdict_rejected() -> None:
     """WorldModelVerdict rejects invalid verdict values."""
     json_str = '{"verdict": "approvedd", "confidence": 0.5}'

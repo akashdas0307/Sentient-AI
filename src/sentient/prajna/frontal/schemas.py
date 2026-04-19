@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class DecisionAction(BaseModel):
@@ -80,10 +80,20 @@ class WorldModelVerdict(BaseModel):
 
     Verdict uses Literal to prevent variant strings like "approve" vs "approved".
     Confidence defaults to 0.5 (moderate uncertainty) instead of 1.0 (false certainty).
+
+    Note: revision_guidance and veto_reason accept None because some LLMs
+    return null for inapplicable fields instead of empty string. The validator
+    coerces None to "" for downstream consistency.
     """
     verdict: Literal["approved", "advisory", "revision_requested", "vetoed"]
     dimension_assessments: DimensionAssessments = DimensionAssessments()
     advisory_notes: str = ""
-    revision_guidance: str = ""
-    veto_reason: str = ""
+    revision_guidance: str | None = ""
+    veto_reason: str | None = ""
     confidence: float = 0.5
+
+    @field_validator("revision_guidance", "veto_reason", mode="before")
+    @classmethod
+    def coerce_none_to_empty(cls, v: str | None) -> str:
+        """LLMs may return null for inapplicable string fields — coerce to ''."""
+        return v if v is not None else ""
