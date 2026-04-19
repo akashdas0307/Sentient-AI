@@ -18,6 +18,8 @@ from typing import Any
 from sentient.core.event_bus import EventBus, get_event_bus
 from sentient.core.module_interface import HealthPulse, ModuleInterface, ModuleStatus
 from sentient.memory.gatekeeper import MemoryGatekeeper
+from sentient.memory.semantic import SemanticStore
+from sentient.memory.procedural import ProceduralStore
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +97,35 @@ CREATE TABLE IF NOT EXISTS consolidation_log (
     coverage_start REAL,
     coverage_end REAL
 );
+
+CREATE TABLE IF NOT EXISTS semantic_memory (
+    fact_id TEXT PRIMARY KEY,
+    statement TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0.5,
+    evidence_episode_ids TEXT NOT NULL DEFAULT '[]',
+    evidence_count INTEGER NOT NULL DEFAULT 0,
+    first_observed REAL NOT NULL,
+    last_reinforced REAL NOT NULL,
+    reinforcement_count INTEGER NOT NULL DEFAULT 1,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_semantic_confidence ON semantic_memory(confidence);
+CREATE INDEX IF NOT EXISTS idx_semantic_first_observed ON semantic_memory(first_observed);
+
+CREATE TABLE IF NOT EXISTS procedural_memory (
+    pattern_id TEXT PRIMARY KEY,
+    description TEXT NOT NULL,
+    trigger_context TEXT NOT NULL DEFAULT '',
+    confidence REAL NOT NULL DEFAULT 0.5,
+    evidence_episode_ids TEXT NOT NULL DEFAULT '[]',
+    evidence_count INTEGER NOT NULL DEFAULT 0,
+    first_observed REAL NOT NULL,
+    last_reinforced REAL NOT NULL,
+    reinforcement_count INTEGER NOT NULL DEFAULT 1,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_procedural_confidence ON procedural_memory(confidence);
+CREATE INDEX IF NOT EXISTS idx_procedural_first_observed ON procedural_memory(first_observed);
 """
 
 
@@ -122,6 +153,8 @@ class MemoryArchitecture(ModuleInterface):
         self._chroma_client = None
         self._chroma_collection = None
         self._embedder = None
+        self.semantic_store: SemanticStore | None = None
+        self.procedural_store: ProceduralStore | None = None
 
         self._write_count = 0
         self._retrieval_count = 0
@@ -143,6 +176,18 @@ class MemoryArchitecture(ModuleInterface):
         )
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SQLITE_SCHEMA)
+
+        # Initialize semantic and procedural stores
+        self.semantic_store = SemanticStore(self._conn)
+        self.procedural_store = ProceduralStore(self._conn)
+
+        # Add consolidation_weight column to memories if it doesn't exist
+        try:
+            self._conn.execute(
+                "ALTER TABLE memories ADD COLUMN consolidation_weight REAL DEFAULT 0.0"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         # ChromaDB setup (lazy — may take time on first init to load embedder)
         try:
@@ -541,6 +586,26 @@ class MemoryArchitecture(ModuleInterface):
             )
         except Exception as exc:
             logger.warning("Episodic retrieval failed: %s", exc)
+            return []
+
+    async def retrieve_semantic(self, query: str, k: int = 3) -> list[dict[str, Any]]:
+        """Retrieve top-k semantic facts matching query. Returns empty list if unavailable."""
+        if self.semantic_store is None:
+            return []
+        try:
+            return await self.semantic_store.retrieve(query, k)
+        except Exception as exc:
+            logger.warning("Semantic retrieval failed: %s", exc)
+            return []
+
+    async def retrieve_procedural(self, context: str, k: int = 3) -> list[dict[str, Any]]:
+        """Retrieve top-k procedural patterns matching context. Returns empty list if unavailable."""
+        if self.procedural_store is None:
+            return []
+        try:
+            return await self.procedural_store.retrieve(context, k)
+        except Exception as exc:
+            logger.warning("Procedural retrieval failed: %s", exc)
             return []
 
     async def count(self, memory_type: MemoryType | None = None) -> int:

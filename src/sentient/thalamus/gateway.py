@@ -138,6 +138,7 @@ class Thalamus(ModuleInterface):
                 "envelope_id": envelope.envelope_id,
                 "source_type": envelope.source_type.value,
                 "priority": priority.value,
+                "envelope": envelope,
             },
         )
 
@@ -147,21 +148,30 @@ class Thalamus(ModuleInterface):
             return
 
         # Tier 2/3: add to batch
+        should_emit_batch = False
         async with self._batch_lock:
             self._current_batch.append(envelope)
             if self._batch_started_at is None:
                 self._batch_started_at = time.time()
             # Tier 2 shortens the window
             if priority == Priority.TIER_2_ELEVATED:
-                # Force batch to emit after min_window
-                await self._maybe_emit_batch(force_after=self.min_window)
+                # Force batch to emit after min_window (emit outside lock)
+                should_emit_batch = True
+        # Emit batch outside the lock to avoid deadlock with _maybe_emit_batch
+        if should_emit_batch:
+            await self._maybe_emit_batch(force_after=self.min_window)
 
     async def _forward_immediately(self, envelope: Envelope) -> None:
         """Forward Tier 1 envelope without batching."""
-        # Flush any current batch first to preserve ordering
+        # Snapshot any current batch under lock, then emit outside lock
+        # to avoid deadlock (event bus publish can trigger callbacks)
         async with self._batch_lock:
-            if self._current_batch:
-                await self._emit_current_batch()
+            batch_snapshot = list(self._current_batch)
+            self._current_batch = []
+            self._batch_started_at = None
+        if batch_snapshot:
+            self._current_batch_outbox = batch_snapshot
+            await self._emit_current_batch()
         # Then forward this envelope alone
         await self._forward_envelope(envelope)
         self._envelopes_forwarded += 1

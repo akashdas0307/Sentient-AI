@@ -36,7 +36,7 @@ You should be able to: install dependencies, configure your LLM endpoints, run `
 
 This is a foundation, not a finished system. You'll need to:
 - Implement the actual reasoning logic in each module (the structure is there; the LLM prompts and orchestration are stubs)
-- Build out the React frontend (only a placeholder index.html exists)
+- Build out the React frontend (6 pages implemented: Chat, Modules, Memory, Sleep, Events, MemoryGraph with shadcn/ui components)
 - Configure your specific LLM providers in `config/inference_gateway.yaml`
 - Write the actual identity files in `config/identity/`
 - Connect a real agent harness (Claude Code or custom agent)
@@ -88,8 +88,15 @@ sentient-framework-mvs/
 │   └── test_smoke.py              # Verifies system starts and runs
 │
 ├── data/                          # Runtime data (gitignored)
-└── gui/                           # React frontend (Phase 2 expansion)
-    └── index.html                 # Minimal placeholder for MVS
+├── gui/                           # React frontend (Phase 2 expansion)
+│   └── src/
+│       ├── pages/                 # Chat, Modules, Memory, Sleep, Events, MemoryGraph
+│       ├── components/            # shadcn/ui + MemoryNode + Panels
+│       ├── store/                 # Zustand with localStorage persistence
+│       ├── hooks/                 # WebSocket hook with reconnection
+│       ├── layouts/               # Dashboard sidebar layout
+│       └── types/                 # TypeScript interfaces
+└── docs/                          # Documentation (HANDOFF, SEASON_LOG, phases)
 ```
 
 ## Phase 1 development checklist
@@ -148,16 +155,21 @@ Use this to track MVS implementation:
 
 ### API
 - [x] FastAPI server
-- [~] WebSocket for chat
-- [~] WebSocket for dashboard streaming
-- [~] REST endpoints for health
+- [x] WebSocket for chat
+- [x] WebSocket for dashboard streaming
+- [x] REST endpoints for health
+- [x] REST endpoints for memory
+- [x] REST endpoints for sleep
 
 ### Frontend (Phase 2)
-- [ ] React + TypeScript setup
-- [ ] Chat component
-- [ ] Dashboard component
-- [ ] Health panel
-- [ ] Module status display
+- [x] React + TypeScript setup
+- [x] Chat component (with persistence + clear history)
+- [x] Dashboard component
+- [x] Health panel
+- [x] Module status display
+- [x] Memory graph visualization
+- [x] Event stream page
+- [x] Sleep consolidation page
 
 ### MVS success criteria (per PRD §9.1)
 - [ ] System runs continuously for 7+ days without manual intervention
@@ -168,6 +180,29 @@ Use this to track MVS implementation:
 - [ ] Sleep cycle runs nightly with successful memory consolidation
 - [ ] Personality shows observable evolution between days
 - [ ] Cost within target range
+
+## Phase 7 Achievements
+
+Phase 7 "Consolidation and Rebirth" transformed the framework into a fully interactive system with a polished frontend:
+
+### Part A: Consolidation (D1-D9)
+- Sleep consolidation injected into cognitive core prompt
+- Semantic memory integration (factual knowledge)
+- Emotional memory tags from TLP
+- Procedural memory patterns
+- Consolidated knowledge injection
+- Wetware test for consolidation cycle
+- API audit and canonical route table
+- Backend route rebuild with WebSocket event streaming
+
+### Part B: UI Rebirth
+- Events page WebSocket format fix
+- Full 8-stage chat pipeline end-to-end
+- Conversation history persistence (Zustand + localStorage)
+- shadcn/ui component polish (9 components)
+- Memory graph visualization (React Flow)
+
+**Key Metrics:** 58 API tests passing, 6 frontend pages, React 19 + TypeScript + Vite 6 + Tailwind v4 + Zustand 5 + React Flow 12 + shadcn/ui
 
 ## License
 

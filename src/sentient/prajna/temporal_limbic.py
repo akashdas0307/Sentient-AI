@@ -82,8 +82,10 @@ class TemporalLimbicProcessor(ModuleInterface):
         pass
 
     async def _handle_delivered(self, payload: dict[str, Any]) -> None:
-        envelope: Envelope = payload["envelope"]
-        sidebar: list[Envelope] = payload.get("sidebar", [])
+        raw_envelope = payload["envelope"]
+        envelope: Envelope = raw_envelope if isinstance(raw_envelope, Envelope) else Envelope.from_dict(raw_envelope)
+        raw_sidebar = payload.get("sidebar", [])
+        sidebar: list[Envelope] = [item if isinstance(item, Envelope) else Envelope.from_dict(item) for item in raw_sidebar]
         try:
             enriched = await self._enrich(envelope, sidebar)
             self._processed_count += 1

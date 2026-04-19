@@ -51,7 +51,7 @@ class Brainstem(ModuleInterface):
     # === Lifecycle ===
 
     async def initialize(self) -> None:
-        await self.event_bus.subscribe("decision.approved", self._handle_approved)
+        await self.event_bus.subscribe("brainstem.output_approved", self._handle_approved)
 
     async def start(self) -> None:
         self.set_status(ModuleStatus.HEALTHY)
@@ -85,9 +85,18 @@ class Brainstem(ModuleInterface):
     # === Decision handling ===
 
     async def _handle_approved(self, payload: dict[str, Any]) -> None:
-        """Receive an approved decision from the World Model."""
+        """Receive an approved decision from the Decision Arbiter."""
         decision = payload["decision"]
         advisory = payload.get("advisory_notes", "")
+        turn_id = payload.get("turn_id", "unknown")
+        escalated = payload.get("escalated", False)
+        escalation_reason = payload.get("escalation_reason", "")
+
+        if escalated:
+            logger.info(
+                "Brainstem executing ESCALATED decision (turn=%s, reason=%s): type=%s",
+                turn_id, escalation_reason, decision.get("type"),
+            )
 
         try:
             await self._execute_decision(decision, advisory)

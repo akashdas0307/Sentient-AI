@@ -46,5 +46,8 @@ Thumbs.db
 gui/node_modules/
 gui/dist/
 gui/build/
+frontend/node_modules/
+frontend/dist/
 
 .omc/
+.playwright-mcp/

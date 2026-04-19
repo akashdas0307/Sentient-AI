@@ -38,17 +38,20 @@ class SleepScheduler(ModuleInterface):
         config: dict[str, Any],
         lifecycle_manager: Any,   # LifecycleManager
         memory: Any | None = None,
+        consolidation_engine: Any | None = None,
         event_bus: EventBus | None = None,
     ) -> None:
         super().__init__("sleep_scheduler", config)
         self.event_bus = event_bus or get_event_bus()
         self.lifecycle = lifecycle_manager
         self.memory = memory
+        self.consolidation_engine = consolidation_engine
 
         self.min_hours = config.get("duration", {}).get("min_hours", 6)
         self.max_hours = config.get("duration", {}).get("max_hours", 12)
         self.settling_minutes = config.get("stages", {}).get("settling_minutes", 45)
         self.pre_wake_minutes = config.get("stages", {}).get("pre_wake_minutes", 45)
+        self.consolidation_enabled = config.get("consolidation_enabled", True)
 
         circadian = config.get("default_circadian", {})
         self.sleep_hour = circadian.get("sleep_hour", 23)
@@ -188,7 +191,7 @@ class SleepScheduler(ModuleInterface):
         await asyncio.sleep(minutes * 60)
 
     async def _run_deep_consolidation(self, minutes: float) -> None:
-        """Stage 3: the heart of sleep — memory consolidation, World Model calibration, etc.
+        """Stage 3: the heart of sleep — memory consolidation.
 
         Per ARCHITECTURE.md §3.5, seven jobs run here:
           1. Memory consolidation (progressive summarization)
@@ -199,15 +202,28 @@ class SleepScheduler(ModuleInterface):
           6. Trait discovery
           7. Offspring evaluation (Phase 3)
 
-        MVS: runs Job 1 only (basic consolidation). Others are stubs.
+        MVS: runs ConsolidationEngine for job 1. Others are stubs.
         """
         await self.event_bus.publish(
             "sleep.deep_consolidation.start",
             {"cycle": self._sleep_cycle_count},
         )
 
-        # Run consolidation jobs
-        await self._job_memory_consolidation()
+        # Run consolidation engine if available and enabled
+        if self.consolidation_engine and self.consolidation_enabled:
+            try:
+                result = await self.consolidation_engine.consolidate_cycle()
+                logger.info(
+                    "Consolidation completed: %s (facts=%s, patterns=%s)",
+                    result.get("status"),
+                    result.get("facts_extracted", 0),
+                    result.get("patterns_extracted", 0),
+                )
+            except Exception as exc:
+                logger.exception("Consolidation engine error: %s", exc)
+        else:
+            # Fallback: run stub consolidation for backward compatibility
+            await self._job_memory_consolidation()
         # await self._job_contradiction_resolution()    # Phase 2
         # await self._job_procedural_refinement()       # Phase 2
         # await self._job_world_model_calibration()     # Phase 2
