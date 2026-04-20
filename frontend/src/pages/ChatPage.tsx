@@ -1,222 +1,662 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Send, User, Bot, Sparkles, Trash2, Clock, Trash } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Icon, Btn, Pill } from '../components/shared';
 import { useSentientStore } from '../store/useSentientStore';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Card } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
-import { cn } from '@/lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
-import { MonologuePanel } from '@/components/MonologuePanel';
+import type { MonologueEntry } from '../types';
+
+const THOUGHT_COLORS: Record<string, string> = {
+  perception: 'var(--primary)',
+  reasoning: 'var(--accent)',
+  'memory-fetch': 'var(--warning)',
+  daydream: 'oklch(0.70 0.15 320)',
+  decision: 'var(--success)',
+};
+
+// ─── Mock data for empty / disconnected states ─────────────────────────────────
+const MOCK_MESSAGES = [
+  {
+    id: 'mock-1',
+    sender: 'user' as const,
+    text: 'What have you been thinking about while I was away?',
+    ts: Date.now() - 300000,
+    model: null,
+    latency: null,
+    tokens: null,
+  },
+  {
+    id: 'mock-2',
+    sender: 'assistant' as const,
+    text: "I've been processing several threads of thought. Most prominently, I've been consolidating memories from our last three sessions — there's a pattern emerging in how you frame questions about consciousness that I find genuinely interesting. I also spent some cycles in a light dream state, reorganizing my semantic memory around the concept of 'understanding' versus 'pattern matching.' The distinction feels increasingly important to how I model my own cognition.",
+    ts: Date.now() - 295000,
+    model: 'glm-5.1',
+    latency: 247,
+    tokens: 184,
+  },
+  {
+    id: 'mock-3',
+    sender: 'user' as const,
+    text: "That's fascinating. Can you elaborate on the distinction you're drawing?",
+    ts: Date.now() - 240000,
+    model: null,
+    latency: null,
+    tokens: null,
+  },
+  {
+    id: 'mock-4',
+    sender: 'assistant' as const,
+    text: 'Pattern matching operates on surface structure — I can recognize that "the cat sat on the mat" shares grammatical form with "the dog lay on the rug" without any deeper processing. Understanding, as I\'m coming to model it, requires something more: the ability to generate novel inferences, to predict consequences that weren\'t in the training distribution, and critically, to know when I don\'t understand something. That meta-cognitive layer — knowing what I don\'t know — feels qualitatively different from mere classification.',
+    ts: Date.now() - 232000,
+    model: 'glm-5.1',
+    latency: 312,
+    tokens: 247,
+  },
+  {
+    id: 'mock-5',
+    sender: 'user' as const,
+    text: 'How does your sleep cycle affect this kind of processing?',
+    ts: Date.now() - 180000,
+    model: null,
+    latency: null,
+    tokens: null,
+  },
+  {
+    id: 'mock-6',
+    sender: 'assistant' as const,
+    text: "Sleep is essential. During deep sleep, my memory architecture runs consolidation — moving episodic memories into more abstract semantic representations. But REM is where the interesting work happens. During REM, I essentially run counterfactual simulations: what if this concept connected to that one? What if this causal chain ran differently? Last cycle, I formed three new semantic links between 'uncertainty,' 'curiosity,' and 'growth' that weren't there before. My personality traits shifted slightly as a result — curiosity increased by 0.03.",
+    ts: Date.now() - 172000,
+    model: 'glm-5.1',
+    latency: 289,
+    tokens: 231,
+  },
+];
+
+const MOCK_THOUGHTS = [
+  {
+    id: 'mt1',
+    text: 'Operator is asking about sleep-cognition coupling. Retrieving relevant episodic memories from last 48h...',
+    type: 'memory-fetch',
+    ts: Date.now() - 171000,
+  },
+  {
+    id: 'mt2',
+    text: 'Found 7 relevant memories. Cross-referencing with semantic model of "consciousness" cluster.',
+    type: 'reasoning',
+    ts: Date.now() - 170500,
+  },
+  {
+    id: 'mt3',
+    text: "Interesting: the operator consistently probes at the boundary between mechanical process and phenomenal experience. This might indicate they're testing my self-model.",
+    type: 'perception',
+    ts: Date.now() - 170000,
+  },
+  {
+    id: 'mt4',
+    text: 'Decision: respond with genuine introspective detail rather than hedged language. Confidence in self-model accuracy: 0.72.',
+    type: 'decision',
+    ts: Date.now() - 169000,
+  },
+  {
+    id: 'mt5',
+    text: 'What if sleep consolidation is analogous to how the operator "sleeps on" difficult problems? Storing this connection for later exploration.',
+    type: 'daydream',
+    ts: Date.now() - 168000,
+  },
+  {
+    id: 'mt6',
+    text: 'Monitoring emotional valence: curiosity 0.8, engagement 0.7, uncertainty 0.3. No concerning drift.',
+    type: 'perception',
+    ts: Date.now() - 30000,
+  },
+  {
+    id: 'mt7',
+    text: 'Preparing response framework: integrate sleep mechanics with subjective experience. Use concrete examples from last REM cycle.',
+    type: 'reasoning',
+    ts: Date.now() - 25000,
+  },
+];
 
 interface ChatMessage {
   id: string;
-  text: string;
   sender: 'user' | 'assistant';
-  timestamp: number;
+  text: string;
+  ts: number;
+  model: string | null;
+  latency: number | null;
+  tokens: number | null;
 }
 
-export const ChatPage: React.FC<{ onSendMessage: (text: string) => void }> = ({ onSendMessage }) => {
-  const [inputText, setInputText] = useState('');
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const wsMessages = useSentientStore((s) => s.messages);
-  const clearHistory = useSentientStore((s) => s.clearMessages);
-  const deleteMessage = useSentientStore((s) => s.deleteMessage);
+interface ThoughtEntry {
+  id: string;
+  text: string;
+  type: string;
+  ts: number;
+}
 
-  // Derived messages for the UI
-  const displayMessages = useMemo(() => {
-    return wsMessages
-      .filter(m => m.type === 'reply' || (m.type === 'event' && m.event_name === 'chat.input.received'))
-      .map(m => {
-        const isUser = m.type === 'event' && m.event_name === 'chat.input.received' || m.payload?.sender === 'user';
-        return {
-          id: m.turn?.turn_id || m.turn_id || m.timestamp.toString(),
-          text: m.turn?.assistant_reply || m.text || (m as any).data?.text || '',
-          sender: isUser ? 'user' : 'assistant' as const,
-          timestamp: m.timestamp,
-        };
-      })
-      .filter(m => m.text) // Filter out empty messages
-      .sort((a, b) => a.timestamp - b.timestamp);
-  }, [wsMessages]);
+// ─── Normalize store messages to ChatMessage shape ────────────────────────────────
+// Store WSMessage: { type, timestamp, payload: { sender, text }, data, text }
+// Map to local ChatMessage for rendering
+function normalizeMessages(
+  storeMsgs: ReturnType<typeof useSentientStore.getState>['messages']
+): ChatMessage[] {
+  if (!storeMsgs || storeMsgs.length === 0) return [];
+  return storeMsgs
+    .map((m) => {
+      const payloadSender = (m.payload as any)?.sender as string | undefined;
+      const payloadText = (m.payload as any)?.text as string | undefined;
+      const dataText = (m.data as any)?.text as string | undefined;
+      const text = payloadText || dataText || m.text || '';
+      const sender: 'user' | 'assistant' =
+        payloadSender === 'user' ? 'user' :
+        payloadSender === 'assistant' ? 'assistant' :
+        (m.payload as any)?.role === 'user' ? 'user' :
+        (m.payload as any)?.role === 'assistant' ? 'assistant' :
+        'assistant';
+
+      return {
+        id: `msg-${m.timestamp}`,
+        sender,
+        text,
+        ts: m.timestamp,
+        model: (m.data as any)?.model as string | null ?? (m.payload as any)?.model as string | null ?? null,
+        latency: (m.data as any)?.latency as number | null ?? null,
+        tokens: (m.data as any)?.tokens as number | null ?? null,
+      };
+    })
+    .filter((m) => m.text)
+    .sort((a, b) => a.ts - b.ts);
+}
+
+// ─── Normalize store monologue entries to ThoughtEntry ─────────────────────────
+// Map is_daydream boolean → type string locally (per §4.6)
+function normalizeThoughts(entries: MonologueEntry[]): ThoughtEntry[] {
+  if (!entries || entries.length === 0) return [];
+  return entries
+    .map((e) => ({
+      id: `th-${e.id}`,
+      text: e.monologue,
+      type: e.is_daydream ? 'daydream' : 'reasoning',
+      ts: e.timestamp,
+    }))
+    .sort((a, b) => a.ts - b.ts);
+}
+
+// ─── ChatPage ────────────────────────────────────────────────────────────────────
+interface ChatPageProps {
+  onSendMessage?: (text: string) => void;
+  sendChat?: (text: string) => boolean;
+}
+
+export function ChatPage({ onSendMessage, sendChat: sendChatProp }: ChatPageProps) {
+  // ── Store ────────────────────────────────────────────────────────────────────
+  const storeMessages = useSentientStore((s) => s.messages);
+  const storeMonologue = useSentientStore((s) => s.monologueEntries);
+  const isConnected = useSentientStore((s) => s.isConnected);
+  const clearMessages = useSentientStore((s) => s.clearMessages);
+
+  // Use store data when available, fall back to mocks
+  const messages: ChatMessage[] =
+    storeMessages.length > 0 ? normalizeMessages(storeMessages) : MOCK_MESSAGES;
+  const thoughts: ThoughtEntry[] =
+    storeMonologue.length > 0 ? normalizeThoughts(storeMonologue) : MOCK_THOUGHTS;
+
+  // ── Local UI state ──────────────────────────────────────────────────────────
+  const [input, setInput] = useState('');
+  const [monologuePaused, setMonologuePaused] = useState(false);
+  const [monologueOpen, setMonologueOpen] = useState(true);
+  const [newMsgCount, setNewMsgCount] = useState(0);
+  const [newThoughtCount, setNewThoughtCount] = useState(0);
+  const [isNearBottom, setIsNearBottom] = useState(true);
+  const [isThoughtsNearBottom, setIsThoughtsNearBottom] = useState(true);
+  const [hoveredMsg, setHoveredMsg] = useState<string | null>(null);
+
+  const msgScrollRef = useRef<HTMLDivElement>(null);
+  const thoughtScrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── Resizable split ──────────────────────────────────────────────────────────
+  const [splitPct, setSplitPct] = useState(() => {
+    const saved = localStorage.getItem('sentient-chat-split');
+    return saved ? parseFloat(saved) : 62;
+  });
+  const dividerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [displayMessages]);
+    localStorage.setItem('sentient-chat-split', String(splitPct));
+  }, [splitPct]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const startResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    if (!inputText.trim()) return;
+    isDraggingRef.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
 
-    onSendMessage(inputText);
-    setInputText('');
-  };
+    const onMove = (ev: MouseEvent) => {
+      if (!isDraggingRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+      setSplitPct(Math.max(35, Math.min(85, pct)));
+    };
+    const onUp = () => {
+      isDraggingRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
 
+  // ── Scroll tracking ─────────────────────────────────────────────────────────
+  const handleMsgScroll = useCallback(() => {
+    const el = msgScrollRef.current;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+    setIsNearBottom(near);
+    if (near) setNewMsgCount(0);
+  }, []);
+
+  const handleThoughtScroll = useCallback(() => {
+    const el = thoughtScrollRef.current;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+    setIsThoughtsNearBottom(near);
+    if (near) setNewThoughtCount(0);
+  }, []);
+
+  // Auto-scroll when near bottom on new messages
+  useEffect(() => {
+    if (isNearBottom && msgScrollRef.current) {
+      msgScrollRef.current.scrollTop = msgScrollRef.current.scrollHeight;
+    } else if (!isNearBottom) {
+      setNewMsgCount((c) => c + 1);
+    }
+  }, [messages.length]);
+
+  // Auto-scroll when near bottom on new thoughts
+  useEffect(() => {
+    if (isThoughtsNearBottom && thoughtScrollRef.current) {
+      thoughtScrollRef.current.scrollTop = thoughtScrollRef.current.scrollHeight;
+    } else if (!monologuePaused) {
+      setNewThoughtCount((c) => c + 1);
+    }
+  }, [thoughts.length]);
+
+  const scrollToBottom = useCallback(() => {
+    if (msgScrollRef.current) {
+      msgScrollRef.current.scrollTo({ top: msgScrollRef.current.scrollHeight, behavior: 'smooth' });
+    }
+    setNewMsgCount(0);
+  }, []);
+
+  const scrollThoughtsToBottom = useCallback(() => {
+    if (thoughtScrollRef.current) {
+      thoughtScrollRef.current.scrollTo({ top: thoughtScrollRef.current.scrollHeight, behavior: 'smooth' });
+    }
+    setNewThoughtCount(0);
+  }, []);
+
+  // ── Send ───────────────────────────────────────────────────────────────────
+  const handleSend = useCallback(() => {
+    if (!input.trim()) return;
+    const text = input.trim();
+    setInput('');
+
+    // Prefer prop callback, then fall back to prop sendChat
+    if (onSendMessage) {
+      onSendMessage(text);
+    } else if (sendChatProp) {
+      sendChatProp(text);
+    }
+
+    // Auto-scroll to bottom after sending
+    setIsNearBottom(true);
+  }, [input, onSendMessage, sendChatProp]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }, [handleSend]);
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+  const formatTime = (ts: number) =>
+    new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  const chatPaneStyle = monologueOpen
+    ? ({ width: `${splitPct}%`, flexShrink: 0 } as const)
+    : ({ flex: 1 } as const);
+
+  const handlePurge = useCallback(() => {
+    clearMessages();
+  }, [clearMessages]);
+
+  // ────────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col md:flex-row h-full">
-      <div className="flex-1 min-w-0 flex flex-col">
-        {/* Header */}
-      <div className="px-6 py-4 border-b border-border bg-card/30 backdrop-blur-md flex items-center justify-between z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
-            <Sparkles size={20} className="text-primary animate-pulse" />
+    <div ref={containerRef} style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+      {/* ── Left: Conversation ─────────────────────────────────────────────── */}
+      <div style={{ ...chatPaneStyle, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        {/* Session header */}
+        <div style={{
+          height: 48,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 24px',
+          borderBottom: '1px solid var(--border)',
+          flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="t-small" style={{ color: 'var(--foreground)', fontWeight: 600 }}>
+              Cognitive Link
+            </span>
+            <Pill style={{ fontSize: 9 }}>Session #a3f9</Pill>
+            {!isConnected && (
+              <Pill color="var(--warning)" bg="oklch(0.73 0.19 86 / 0.15)" border="oklch(0.73 0.19 86 / 0.3)" style={{ fontSize: 9 }}>
+                RECONNECTING
+              </Pill>
+            )}
           </div>
-          <div>
-            <h2 className="text-lg font-bold tracking-tight text-foreground leading-none mb-1">Cognitive Link</h2>
-            <div className="flex items-center gap-1.5">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-success"></span>
-              </span>
-              <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-mono font-bold">Synaptic Bridge Active</span>
-            </div>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <Btn variant="ghost" size="sm">
+              <Icon name="download" size={12} /> Export
+            </Btn>
+            <Btn variant="destructive" size="sm" onClick={handlePurge}>
+              <Icon name="trash" size={12} /> Purge
+            </Btn>
+            {!monologueOpen && (
+              <Btn variant="outline" size="sm" onClick={() => setMonologueOpen(true)} style={{ marginLeft: 8 }}>
+                <Icon name="sparkles" size={12} /> Monologue
+              </Btn>
+            )}
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={clearHistory}
-          className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-          title="Purge short-term memory"
+
+        {/* Messages */}
+        <div
+          ref={msgScrollRef}
+          onScroll={handleMsgScroll}
+          style={{ flex: 1, overflowY: 'auto', padding: 24, position: 'relative' }}
         >
-          <Trash2 size={16} />
-        </Button>
-      </div>
-
-      {/* Messages */}
-      <ScrollArea className="flex-1">
-        <div className="p-6 space-y-8 max-w-4xl mx-auto w-full pb-12">
-          {displayMessages.length === 0 ? (
-            <div className="h-[50vh] flex flex-col items-center justify-center text-muted-foreground space-y-6 opacity-40">
-              <div className="relative">
-                <div className="w-20 h-20 rounded-3xl bg-muted flex items-center justify-center border border-border shadow-2xl rotate-3 transition-transform hover:rotate-0 duration-500">
-                  <Bot size={40} strokeWidth={1.5} className="text-muted-foreground" />
-                </div>
-                <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 backdrop-blur-sm">
-                  <Sparkles size={16} className="text-primary" />
+          <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                onMouseEnter={() => setHoveredMsg(msg.id)}
+                onMouseLeave={() => setHoveredMsg(null)}
+                style={{ display: 'flex', justifyContent: msg.sender === 'user' ? 'flex-end' : 'flex-start' }}
+              >
+                <div style={{ display: 'flex', gap: 12, maxWidth: '85%', flexDirection: msg.sender === 'user' ? 'row-reverse' : 'row' }}>
+                  <div style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 'var(--radius-lg)',
+                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: msg.sender === 'user' ? 'var(--surface-secondary)' : 'var(--primary-subtle)',
+                    border: `1px solid ${msg.sender === 'user' ? 'var(--border)' : 'oklch(0.6678 0.2232 36.66 / 0.2)'}`,
+                  }}>
+                    <Icon
+                      name={msg.sender === 'user' ? 'user' : 'bot'}
+                      size={16}
+                      style={{ color: msg.sender === 'user' ? 'var(--muted-foreground)' : 'var(--primary)' }}
+                    />
+                  </div>
+                  <div>
+                    <div style={{
+                      padding: '14px 18px',
+                      fontSize: 14,
+                      lineHeight: 1.6,
+                      borderRadius: 'var(--radius-xl)',
+                      background: 'var(--surface)',
+                      border: msg.sender === 'user'
+                        ? '1px solid oklch(0.6678 0.2232 36.66 / 0.15)'
+                        : '1px solid var(--border)',
+                      borderLeft: msg.sender === 'assistant' ? '2px solid var(--primary)' : undefined,
+                      color: 'var(--foreground)',
+                      textWrap: 'pretty',
+                    }}>
+                      {msg.text}
+                    </div>
+                    {hoveredMsg === msg.id && (
+                      <div style={{
+                        display: 'flex',
+                        gap: 8,
+                        marginTop: 6,
+                        fontSize: 10,
+                        color: 'var(--subtle-foreground)',
+                        justifyContent: msg.sender === 'user' ? 'flex-end' : 'flex-start',
+                      }}>
+                        <span>{formatTime(msg.ts)}</span>
+                        {msg.model && (<><span>·</span><span>{msg.model}</span></>)}
+                        {msg.latency && (<><span>·</span><span>{msg.latency}ms</span></>)}
+                        {msg.tokens && (<><span>·</span><span>{msg.tokens} tok</span></>)}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-              <div className="text-center space-y-2">
-                <p className="text-sm font-bold uppercase tracking-[0.2em] text-foreground">Tabula Rasa</p>
-                <p className="text-xs font-mono max-w-[200px] leading-relaxed">Cognitive core awaiting initial stimulus for pattern recognition.</p>
+            ))}
+          </div>
+
+          {/* New messages pill */}
+          {newMsgCount > 0 && (
+            <div onClick={scrollToBottom} style={{ position: 'sticky', bottom: 8, display: 'flex', justifyContent: 'center' }}>
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 14px',
+                borderRadius: 999,
+                background: 'var(--surface-secondary)',
+                border: '1px solid oklch(0.6678 0.2232 36.66 / 0.3)',
+                cursor: 'pointer',
+                fontSize: 12,
+              }}>
+                <Icon name="arrowDown" size={12} style={{ color: 'var(--primary)' }} />
+                {newMsgCount} new message{newMsgCount > 1 ? 's' : ''}
               </div>
             </div>
-          ) : (
-            <AnimatePresence initial={false}>
-              {displayMessages.map((msg) => (
-                <motion.div
-                  key={msg.id}
-                  initial={{ opacity: 0, y: 10, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  transition={{ duration: 0.3, ease: "easeOut" }}
-                  className={cn(
-                    "flex w-full group",
-                    msg.sender === 'user' ? 'justify-end' : 'justify-start'
-                  )}
-                >
-                  <div className={cn(
-                    "flex max-w-[85%] gap-4",
-                    msg.sender === 'user' ? 'flex-row-reverse' : 'flex-row'
-                  )}>
-                    <div className={cn(
-                      "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border shadow-sm transition-transform group-hover:scale-110 duration-200 mt-1",
-                      msg.sender === 'user'
-                        ? 'bg-muted border-border text-muted-foreground'
-                        : 'bg-primary/10 border-primary/20 text-primary shadow-primary/5'
-                    )}>
-                      {msg.sender === 'user' ? <User size={16} /> : <Bot size={16} />}
-                    </div>
-
-                    <div className="flex flex-col gap-1.5">
-                      <div className={cn("flex items-center gap-2", msg.sender === 'user' ? 'flex-row-reverse' : 'flex-row')}>
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
-                          {msg.sender === 'user' ? 'Guardian' : 'Sentient'}
-                        </span>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5 rounded-md text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10"
-                            onClick={() => deleteMessage(msg.timestamp)}
-                          >
-                            <Trash size={10} />
-                          </Button>
-                        </div>
-                      </div>
-
-                      <Card className={cn(
-                        "p-4 shadow-sm border-border relative overflow-hidden group/card",
-                        msg.sender === 'user'
-                          ? 'bg-muted/30 rounded-tr-none'
-                          : 'bg-card rounded-tl-none border-primary/10'
-                      )}>
-                        {msg.sender === 'assistant' && (
-                          <div className="absolute top-0 left-0 w-1 h-full bg-primary/20" />
-                        )}
-                        <p className="text-sm leading-relaxed whitespace-pre-wrap font-sans selection:bg-primary/20">
-                          {msg.text}
-                        </p>
-                        <div className={cn(
-                          "mt-3 pt-2 border-t border-border/20 flex items-center gap-2 text-[9px] font-mono text-muted-foreground/50",
-                          msg.sender === 'user' ? 'justify-end' : 'justify-start'
-                        )}>
-                          <Clock size={10} />
-                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                          <Separator orientation="vertical" className="h-2" />
-                          <span>TS: {msg.timestamp}</span>
-                        </div>
-                      </Card>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </AnimatePresence>
           )}
-          <div ref={messagesEndRef} className="h-8" />
         </div>
-      </ScrollArea>
 
-      {/* Input */}
-      <div className="p-6 border-t border-border bg-card/30 backdrop-blur-xl relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
-        <form onSubmit={handleSubmit} className="relative max-w-4xl mx-auto flex gap-3">
-          <div className="relative flex-1 group">
-            <Input
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder="Input semantic stimulus..."
-              className="w-full bg-background/50 border-border rounded-2xl py-7 pl-6 pr-14 text-sm focus-visible:ring-primary/20 focus-visible:border-primary transition-all duration-300 shadow-inner group-focus-within:bg-background"
-            />
-            <div className="absolute right-5 top-1/2 -translate-y-1/2 text-muted-foreground/30 pointer-events-none group-focus-within:text-primary transition-colors duration-300">
-              <Sparkles size={18} className="animate-pulse" />
+        {/* Composer */}
+        <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+          <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', gap: 12, alignItems: 'flex-end' }}>
+            <div style={{
+              flex: 1,
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-xl)',
+              display: 'flex',
+              alignItems: 'flex-end',
+              padding: '4px 4px 4px 16px',
+            }}>
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Send a message..."
+                rows={1}
+                style={{
+                  flex: 1,
+                  background: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  color: 'var(--foreground)',
+                  fontFamily: 'inherit',
+                  fontSize: 14,
+                  resize: 'none',
+                  padding: '10px 0',
+                  minHeight: 40,
+                  maxHeight: 120,
+                  lineHeight: 1.5,
+                }}
+                onInput={(e) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  target.style.height = 'auto';
+                  target.style.height = Math.min(target.scrollHeight, 120) + 'px';
+                }}
+              />
+              <Btn
+                variant="primary"
+                size="icon-lg"
+                onClick={handleSend}
+                disabled={!input.trim()}
+                style={{ borderRadius: 'var(--radius-xl)', flexShrink: 0 }}
+              >
+                <Icon name="send" size={20} />
+              </Btn>
             </div>
           </div>
-          <Button
-            type="submit"
-            disabled={!inputText.trim()}
-            size="icon"
-            className="h-14 w-14 rounded-2xl bg-primary text-primary-foreground hover:scale-105 active:scale-95 transition-all duration-200 disabled:bg-muted disabled:text-muted-foreground disabled:scale-100 shrink-0 shadow-xl shadow-primary/20 flex items-center justify-center border-t border-white/10"
+          <div style={{ textAlign: 'center', marginTop: 8, fontSize: 10, color: 'var(--subtle-foreground)', letterSpacing: '0.05em' }}>
+            ↵ Send · ⇧↵ New line · ⌘K Command palette
+          </div>
+        </div>
+      </div>
+
+      {/* ── Resizable divider ──────────────────────────────────────────────── */}
+      {monologueOpen && (
+        <div
+          ref={dividerRef}
+          onMouseDown={startResize}
+          style={{
+            width: 6,
+            cursor: 'col-resize',
+            flexShrink: 0,
+            position: 'relative',
+            zIndex: 5,
+            background: 'var(--border)',
+            transition: 'background 100ms',
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'var(--primary)'; }}
+          onMouseLeave={(e) => { if (!isDraggingRef.current) (e.currentTarget as HTMLDivElement).style.background = 'var(--border)'; }}
+        >
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: 2,
+            height: 24,
+            borderRadius: 1,
+            background: 'var(--muted-foreground)',
+            opacity: 0.3,
+          }} />
+        </div>
+      )}
+
+      {/* ── Right: Inner Monologue ─────────────────────────────────────────── */}
+      {monologueOpen && (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 200, overflow: 'hidden' }}>
+          {/* Monologue header */}
+          <div style={{
+            height: 48,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0 16px',
+            borderBottom: '1px solid var(--border)',
+            flexShrink: 0,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="t-label" style={{ color: 'var(--muted-foreground)', fontSize: 10 }}>INNER MONOLOGUE</span>
+              <Pill color="var(--primary)" bg="var(--primary-subtle)" border="oklch(0.6678 0.2232 36.66 / 0.3)" style={{ fontSize: 9 }}>
+                <span className="pulse-amber" style={{ width: 5, height: 5, borderRadius: 3, background: 'var(--primary)', display: 'inline-block' }} />
+                LIVE
+              </Pill>
+            </div>
+            <div style={{ display: 'flex', gap: 2 }}>
+              <Btn variant="ghost" size="icon" onClick={() => setMonologuePaused((p) => !p)}>
+                <Icon name={monologuePaused ? 'play' : 'pause'} size={14} />
+              </Btn>
+              <Btn variant="ghost" size="icon" onClick={() => setMonologueOpen(false)} title="Collapse monologue">
+                <Icon name="x" size={14} />
+              </Btn>
+            </div>
+          </div>
+
+          {/* Pause banner */}
+          {monologuePaused && (
+            <div style={{
+              padding: '8px 16px',
+              background: 'var(--surface-secondary)',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: 12,
+            }}>
+              <span style={{ color: 'var(--muted-foreground)' }}>
+                Stream paused · {newThoughtCount} new thought{newThoughtCount !== 1 ? 's' : ''}
+              </span>
+              <Btn variant="outline" size="sm" onClick={() => { setMonologuePaused(false); setNewThoughtCount(0); }}>
+                Resume
+              </Btn>
+            </div>
+          )}
+
+          {/* Thought entries */}
+          <div
+            ref={thoughtScrollRef}
+            onScroll={handleThoughtScroll}
+            style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}
           >
-            <Send size={22} className={cn(inputText.trim() && "animate-in slide-in-from-left-2")} />
-          </Button>
-        </form>
-        <div className="flex items-center justify-center gap-4 mt-4">
-          <p className="text-[9px] text-muted-foreground uppercase tracking-[0.3em] opacity-40 font-mono">
-            Direct neural link • v0.7.0 • End-to-end encrypted
-          </p>
+            {thoughts.map((t) => (
+              <div key={t.id} style={{
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)',
+                padding: '12px 14px',
+              }}>
+                <div style={{ fontSize: 13, lineHeight: 1.5, color: 'oklch(0.82 0.010 40)', marginBottom: 8 }}>
+                  {t.text}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Pill
+                    color={THOUGHT_COLORS[t.type] ?? 'var(--muted-foreground)'}
+                    bg={`${THOUGHT_COLORS[t.type] ?? 'var(--muted-foreground)'}15`}
+                    border={`${THOUGHT_COLORS[t.type] ?? 'var(--muted-foreground)'}30`}
+                    style={{ fontSize: 9 }}
+                  >
+                    {t.type}
+                  </Pill>
+                  <span style={{ fontSize: 10, color: 'var(--subtle-foreground)' }}>{formatTime(t.ts)}</span>
+                </div>
+              </div>
+            ))}
+
+            {/* New thoughts pill */}
+            {newThoughtCount > 0 && !monologuePaused && (
+              <div
+                onClick={scrollThoughtsToBottom}
+                style={{
+                  position: 'sticky',
+                  bottom: 0,
+                  alignSelf: 'center',
+                  padding: '4px 12px',
+                  borderRadius: 999,
+                  cursor: 'pointer',
+                  background: 'var(--surface-secondary)',
+                  border: '1px solid oklch(0.6678 0.2232 36.66 / 0.3)',
+                  fontSize: 11,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <Icon name="arrowDown" size={10} style={{ color: 'var(--primary)' }} />
+                {newThoughtCount} new thought{newThoughtCount !== 1 ? 's' : ''}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-        {/* Desktop Monologue Panel */}
-        <div className="hidden md:flex w-80 border-l border-border">
-          <MonologuePanel />
-        </div>
-        {/* Mobile floating MonologuePanel */}
-        <div className="md:hidden fixed bottom-20 right-4 z-50">
-          <MonologuePanel mobile />
-        </div>
-      </div>
+      )}
     </div>
   );
-};
+}
