@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Icon, Btn, Pill } from '../components/shared';
 import { useSentientStore } from '../store/useSentientStore';
+import { formatTimestampPrecise } from '../lib/format';
 
 const EVENT_TYPES = [
   'chat.input.received',
@@ -149,11 +150,6 @@ export const EventsPage: React.FC = () => {
     setModuleFilter('all');
   };
 
-  const formatTs = (ts: number): string => {
-    const d = new Date(ts);
-    return d.toLocaleTimeString([], { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
-  };
-
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Filter bar */}
@@ -241,7 +237,7 @@ export const EventsPage: React.FC = () => {
                   onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}>
                   <div style={{ display: 'flex', alignItems: 'center', height: 48, padding: '0 24px', gap: 16 }}>
                     <span style={{ width: 100, fontSize: 11, color: 'var(--subtle-foreground)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-                      {formatTs(evt.ts)}
+                      {formatTimestampPrecise(evt.ts)}
                     </span>
                     <Pill color={SEV_COLORS[evt.severity]} bg={`${SEV_COLORS[evt.severity]}12`} border={`${SEV_COLORS[evt.severity]}30`}
                       style={{ width: 140, justifyContent: 'center', fontSize: 9 }}>

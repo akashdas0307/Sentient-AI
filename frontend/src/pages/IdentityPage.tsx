@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Pill, Icon, GaugeBar, Sparkline } from '../components/shared';
+import { formatFull } from '../lib/format';
 
 interface PersonaState {
   maturity_stage: string;
@@ -398,7 +399,7 @@ const IdentityPageContent: React.FC = () => {
                       {entry.drift_type?.toUpperCase() ?? 'DRIFT'}
                     </Pill>
                     <span style={{ fontSize: 10, fontFamily: 'IBM Plex Mono', color: 'var(--muted-foreground)' }}>
-                      {entry.timestamp ? new Date(entry.timestamp * 1000).toLocaleString() : 'unknown'}
+                      {entry.timestamp ? formatFull(new Date(entry.timestamp * 1000).toISOString()) : 'unknown'}
                     </span>
                   </div>
                   <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--foreground)', marginBottom: 6 }}>{entry.description}</p>

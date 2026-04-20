@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Icon, Btn, Card, Pill, GaugeBar, StatCard } from '../components/shared';
 import { useSentientStore } from '../store/useSentientStore';
+import { formatRelative, formatFull } from '../lib/format';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface MemoryEntry {
@@ -70,12 +71,6 @@ const MOCK_MEMORIES: MemoryEntry[] = Array.from({ length: 30 }, (_, i) => {
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-function formatAge(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return new Date(iso).toLocaleDateString();
-}
 
 function getEntryType(e: MemoryEntry): string {
   return e.memory_type || e.type || 'EPISODIC';
@@ -269,7 +264,7 @@ export function MemoryPage() {
                       <GaugeBar value={imp} color="var(--primary)" width={60} height={4} label={`${Math.round(imp * 100)}%`} />
                       <GaugeBar value={conf} color="var(--success)" width={60} height={4} label={`${Math.round(conf * 100)}%`} />
                       <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--subtle-foreground)' }}>
-                        {formatAge(mem.created_at || mem.timestamp || '')}
+                        {formatRelative(mem.created_at || mem.timestamp || '')}
                       </span>
                     </div>
 
@@ -328,7 +323,7 @@ export function MemoryPage() {
                 ['ID', sel.id],
                 ['Importance', `${Math.round((sel.importance ?? 0) * 100)}%`],
                 ['Confidence', `${Math.round((sel.confidence ?? 0) * 100)}%`],
-                ['Created', sel.created_at ? new Date(sel.created_at).toLocaleString() : sel.timestamp ? new Date(sel.timestamp).toLocaleString() : 'Unknown'],
+                ['Created', sel.created_at ? formatFull(sel.created_at) : sel.timestamp ? formatFull(sel.timestamp!) : 'Unknown'],
               ] as [string, string][]).map(([k, v]) => (
                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
                   <span style={{ color: 'var(--muted-foreground)' }}>{k}</span>

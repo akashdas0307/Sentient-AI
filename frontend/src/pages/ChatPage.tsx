@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Icon, Btn, Pill } from '../components/shared';
 import { useSentientStore } from '../store/useSentientStore';
 import type { MonologueEntry } from '../types';
+import { formatTimestamp } from '../lib/format';
 
 const THOUGHT_COLORS: Record<string, string> = {
   perception: 'var(--primary)',
@@ -322,8 +323,6 @@ export function ChatPage({ onSendMessage, sendChat: sendChatProp }: ChatPageProp
   }, [handleSend]);
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
-  const formatTime = (ts: number) =>
-    new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   const chatPaneStyle = monologueOpen
     ? ({ width: `${splitPct}%`, flexShrink: 0 } as const)
@@ -431,7 +430,7 @@ export function ChatPage({ onSendMessage, sendChat: sendChatProp }: ChatPageProp
                         color: 'var(--subtle-foreground)',
                         justifyContent: msg.sender === 'user' ? 'flex-end' : 'flex-start',
                       }}>
-                        <span>{formatTime(msg.ts)}</span>
+                        <span>{formatTimestamp(msg.ts)}</span>
                         {msg.model && (<><span>·</span><span>{msg.model}</span></>)}
                         {msg.latency && (<><span>·</span><span>{msg.latency}ms</span></>)}
                         {msg.tokens && (<><span>·</span><span>{msg.tokens} tok</span></>)}
@@ -626,7 +625,7 @@ export function ChatPage({ onSendMessage, sendChat: sendChatProp }: ChatPageProp
                   >
                     {t.type}
                   </Pill>
-                  <span style={{ fontSize: 10, color: 'var(--subtle-foreground)' }}>{formatTime(t.ts)}</span>
+                  <span style={{ fontSize: 10, color: 'var(--subtle-foreground)' }}>{formatTimestamp(t.ts)}</span>
                 </div>
               </div>
             ))}

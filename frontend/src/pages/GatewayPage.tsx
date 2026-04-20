@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useSentientStore } from '../store/useSentientStore';
 import { Card, StatCard, Sparkline, Pill, Icon } from '../components/shared';
 import type { InferenceCall } from '../types/gateway';
+import { formatTimestamp as formatTimestampShort, formatDuration, formatCost as formatCostUtil } from '../lib/format';
 
 // ─── Outcome colors ───
 const OUTCOME_COLORS = {
@@ -13,16 +14,6 @@ const OUTCOME_COLORS = {
 type Outcome = keyof typeof OUTCOME_COLORS;
 
 // ─── Helpers ───
-const formatCost = (cost: number): string => {
-  if (cost < 0.0001) return '<$0.0001';
-  return `$${cost.toFixed(4)}`;
-};
-
-const formatTime = (ms: number): string => {
-  if (ms < 1000) return `${ms.toFixed(0)}ms`;
-  return `${(ms / 1000).toFixed(2)}s`;
-};
-
 const getOutcome = (call: InferenceCall): Outcome => {
   if (call.error) return 'ERROR';
   if (call.fallback_used) return 'FALLBACK';
@@ -138,14 +129,14 @@ const CallRow: React.FC<{ call: InferenceCall; expanded: boolean; onToggle: () =
         {/* Right: metrics */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
           <span style={{ fontSize: 10, color: 'var(--muted-foreground)', fontFamily: 'IBM Plex Mono' }}>
-            {new Date(call.timestamp).toLocaleTimeString([], { hour12: false, fractionalSecondDigits: 1 })}
+            {formatTimestampShort(call.timestamp, { fractional: true })}
           </span>
           <span style={{ fontSize: 11, fontFamily: 'IBM Plex Mono', color: 'var(--foreground)' }}>
-            {formatTime(call.duration_ms)}
+            {formatDuration(call.duration_ms)}
           </span>
           {call.cost_usd > 0 && (
             <span style={{ fontSize: 10, fontFamily: 'IBM Plex Mono', color: 'var(--success)' }}>
-              {formatCost(call.cost_usd)}
+              {formatCostUtil(call.cost_usd)}
             </span>
           )}
           <Pill color={borderColor} border={`${borderColor}66`}>
@@ -202,7 +193,7 @@ const GatewayPageContent: React.FC = () => {
         {/* Stat row */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
           <StatCard label="Total Calls Today" value={totalCalls.toLocaleString()} color="var(--foreground)" sparkData={MOCK_CALLS_SPARK} />
-          <StatCard label="Total Cost Today" value={formatCost(totalCost)} color="var(--success)" sparkData={MOCK_CALLS_SPARK.map(v => v * 0.0018)} />
+          <StatCard label="Total Cost Today" value={formatCostUtil(totalCost)} color="var(--success)" sparkData={MOCK_CALLS_SPARK.map(v => v * 0.0018)} />
           <StatCard label="Fallback Rate" value={`${(fallbackRate * 100).toFixed(1)}%`} color={fallbackRate > 0.05 ? 'var(--warning)' : 'var(--success)'} sparkData={MOCK_CALLS_SPARK.map(() => Math.random() * 0.08)} />
         </div>
 

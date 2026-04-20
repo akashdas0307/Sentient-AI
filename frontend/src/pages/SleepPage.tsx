@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Icon, Btn, Card, Pill } from '../components/shared';
+import { formatTimestampSecs, formatRelativeSecs, formatDurationSecs } from '../lib/format';
 
 const STAGES = ['awake', 'light', 'deep', 'rem'] as const;
 type Stage = typeof STAGES[number];
@@ -71,14 +72,6 @@ const STAGE_ICONS: Record<Stage, string> = {
   rem: 'sparkles',
 };
 
-const formatDur = (s: number): string => `${Math.floor(s / 60)}m ${s % 60}s`;
-const formatTime = (ts: number): string => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-const formatRelative = (ts: number): string => {
-  const diff = Date.now() - ts * 1000;
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return `${Math.floor(diff / 86400000)}d ago`;
-};
 
 export const SleepPage: React.FC = () => {
   const [sleepState, setSleepState] = useState<SleepState>({ stage: 'deep', duration: 2538, cycle_count: 7 });
@@ -194,7 +187,7 @@ export const SleepPage: React.FC = () => {
             </div>
             <div style={{ flex: 1 }}>
               <div className="t-display" style={{ color: meta.color, marginBottom: 4 }}>{meta.label}</div>
-              <div style={{ fontSize: 15, color: 'var(--muted-foreground)', marginBottom: 2 }}>{formatDur(sleepState.duration)} in this stage</div>
+              <div style={{ fontSize: 15, color: 'var(--muted-foreground)', marginBottom: 2 }}>{formatDurationSecs(sleepState.duration)} in this stage</div>
               <div style={{ fontSize: 11, color: 'var(--subtle-foreground)' }}>Next transition estimate: ~18 min</div>
             </div>
             <div style={{ display: 'flex', gap: 24 }}>
@@ -326,7 +319,7 @@ export const SleepPage: React.FC = () => {
                   <span style={{ fontSize: 8, color: 'var(--subtle-foreground)', fontWeight: 600, textTransform: 'uppercase' as const }}>
                     {c.scope.split('→')[0].trim().slice(0, 4)}
                   </span>
-                  <span style={{ fontSize: 8, color: 'var(--subtle-foreground)' }}>{formatRelative(c.consolidated_at)}</span>
+                  <span style={{ fontSize: 8, color: 'var(--subtle-foreground)' }}>{formatRelativeSecs(c.consolidated_at)}</span>
                 </div>
               );
             })}
@@ -343,7 +336,7 @@ export const SleepPage: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Pill color="var(--accent)" bg="oklch(0.70 0.18 280 / 0.1)" border="oklch(0.70 0.18 280 / 0.3)" style={{ fontSize: 9 }}>{c.scope}</Pill>
-                    <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>{formatTime(c.consolidated_at)}</span>
+                    <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>{formatTimestampSecs(c.consolidated_at)}</span>
                   </div>
                   <Btn variant="ghost" size="icon" onClick={() => setExpanded(null)}>
                     <Icon name="x" size={12} />
@@ -388,7 +381,7 @@ export const SleepPage: React.FC = () => {
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 10, color: 'var(--subtle-foreground)' }}>{formatRelative(c.consolidated_at)}</span>
+                    <span style={{ fontSize: 10, color: 'var(--subtle-foreground)' }}>{formatRelativeSecs(c.consolidated_at)}</span>
                     <Icon name={expanded === c.id ? 'chevronDown' : 'chevronRight'} size={12} style={{ color: 'var(--subtle-foreground)' }} />
                   </div>
                 </div>
