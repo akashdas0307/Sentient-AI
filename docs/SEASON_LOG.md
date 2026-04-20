@@ -134,3 +134,15 @@ Phase 5 achieved the project's primary milestone: the sentient framework had its
 - Turn records in WebSocket reply messages
 
 *Last updated: 2026-04-18*
+
+---
+
+## Phase Infra-1: OMOA Migration — 2026-04-21
+
+**Status:** COMPLETE (awaiting merge)
+**Branch:** `auto/infra-1-omoa-migration`
+**Duration:** 1 session
+
+Phase Infra-1 moved orchestration authority from OMC (Claude Code) to OMOA (OpenCode) via Kimaki Discord bridge. OMC is preserved as `@claude-code-worker` alongside `@gemini-worker` and `@codex-worker`. Key deliverables: unified `.agent-state/` state tree (omc/, omoa/, shared/), 4 bridge subagents, OMOA configuration with RED gate enforcement at 4 layers (permission config, AGENTS.md, CLAUDE.md, worker contracts), idempotent migration script, Kimaki MEMORY.md and Discord notification script, and full verification report (4/9 scenarios passed, 5 deferred to post-merge live testing). Zero changes to src/sentient/**, tests/**, or frontend/src/**.
+
+*Last updated: 2026-04-21*
