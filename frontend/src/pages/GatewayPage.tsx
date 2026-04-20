@@ -176,7 +176,7 @@ export const GatewayPage: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-4">
                       <span className="text-[10px] font-mono text-muted-foreground flex items-center gap-1">
-                        <Clock size={10} /> {new Date(call.timestamp * 1000).toLocaleTimeString([], { hour12: false, fractionalSecondDigits: 3 })}
+                        <Clock size={10} /> {new Date(call.timestamp).toLocaleTimeString([], { hour12: false, fractionalSecondDigits: 3 })}
                       </span>
                       <span className="text-[10px] font-mono">
                         {formatDuration(call.duration_ms)}

@@ -37,6 +37,11 @@ from sentient.core.event_bus import EventBus, get_event_bus, _to_json_safe
 logger = logging.getLogger(__name__)
 
 
+def now_ms() -> int:
+    """Current time as integer milliseconds since epoch."""
+    return int(time.time() * 1000)
+
+
 async def _safe_send_json(websocket, data) -> bool:
     """Send data via WebSocket using JSON, with belt-and-suspenders serialization.
 
@@ -376,14 +381,14 @@ class APIServer:
                     "type": "health",
                     "data": health,
                     "health": health,
-                    "timestamp": time.time(),
+                    "timestamp": now_ms(),
                 })
 
                 # Send welcome message
                 await _safe_send_json(websocket, {
                     "type": "welcome",
                     "text": "Connected to Sentient Framework.",
-                    "timestamp": time.time(),
+                    "timestamp": now_ms(),
                 })
 
                 # Send recent events for backfill
@@ -517,11 +522,11 @@ class APIServer:
                         "assistant_reply": message.get("text", ""),
                         "events": [],
                         "started_at": 0,
-                        "completed_at": time.time(),
+                        "completed_at": now_ms(),
                         "is_complete": True,
                     },
                     "done": True,
-                    "timestamp": time.time(),
+                    "timestamp": now_ms(),
                     "payload": {"sender": "assistant"}
                 }
 
@@ -550,6 +555,9 @@ class APIServer:
         event_name = payload.get("event_type", "unknown")
         turn_id = payload.get("turn_id")
         timestamp = payload.get("timestamp", time.time())
+        # Normalize: if timestamp looks like seconds (< 1e12), convert to ms
+        if isinstance(timestamp, (int, float)) and timestamp < 1e12:
+            timestamp = int(timestamp * 1000)
 
         # Determine stage from event prefix
         stage = self._map_event_to_stage(event_name)
@@ -590,7 +598,7 @@ class APIServer:
                         "type": "health",
                         "data": health,
                         "health": health,
-                        "timestamp": time.time(),
+                        "timestamp": now_ms(),
                     }
                     dead = set()
                     for ws in self._ws_clients:
