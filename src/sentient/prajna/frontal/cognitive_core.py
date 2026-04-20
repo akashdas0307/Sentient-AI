@@ -183,6 +183,7 @@ class CognitiveCore(ModuleInterface):
         self._attention_summary_task: asyncio.Task | None = None
         self._current_revision_count = 0
         self._current_turn_id: str | None = None
+        self._daydream_in_progress: bool = False
 
         # --- Daydream seed selector ---
         seed_sources_enabled = config.get("daydream", {}).get("seed_sources_enabled", False)
@@ -254,7 +255,7 @@ class CognitiveCore(ModuleInterface):
         # Generate turn_id for this input (stable across all revision cycles)
         self._current_turn_id = str(uuid.uuid4())
 
-        await self._run_reasoning_cycle(context, envelope)
+        await self._run_reasoning_cycle(context, envelope, turn_id=self._current_turn_id)
 
         self._last_activity_at = time.time()
 
@@ -263,6 +264,7 @@ class CognitiveCore(ModuleInterface):
         context: Any,  # EnrichedContext | dict
         envelope: Envelope | None = None,
         is_daydream: bool = False,
+        turn_id: str | None = None,
     ) -> ReasoningCycle:
         """Execute one reasoning cycle."""
         if envelope is None:
@@ -274,6 +276,10 @@ class CognitiveCore(ModuleInterface):
             is_daydream=is_daydream,
         )
         self._cycle_count += 1
+
+        # Use provided turn_id or generate a new one — makes turn_id cycle-local
+        # to prevent race conditions when user input arrives mid-daydream
+        effective_turn_id = turn_id or self._current_turn_id or str(uuid.uuid4())
 
         await self.event_bus.publish(
             "cognitive.cycle.start",
@@ -335,7 +341,7 @@ class CognitiveCore(ModuleInterface):
                     "decision.proposed",
                     {
                         "cycle_id": cycle.cycle_id,
-                        "turn_id": self._current_turn_id,
+                        "turn_id": effective_turn_id,
                         "decision": decision,
                         "context_envelope_id": (
                             envelope.envelope_id if envelope else None
@@ -668,27 +674,77 @@ class CognitiveCore(ModuleInterface):
                 logger.exception("Daydream loop error: %s", exc)
 
     async def _daydream(self) -> None:
-        """Run a daydream session."""
+        """Run a daydream session using a synthetic envelope built from seed text.
+
+        Per Phase 10 D2 fix: instead of passing context=None (which hit the
+        early-return guard), build a synthetic Envelope from the daydream seed
+        and pass it through the full reasoning pipeline.
+        """
+        # Guard: prevent overlapping daydreams
+        if self._daydream_in_progress:
+            logger.debug("Daydream skipped: already in progress")
+            return
+
+        self._daydream_in_progress = True
         self._daydream_count += 1
-        await self.event_bus.publish(
-            "cognitive.daydream.start",
-            {"daydream_count": self._daydream_count},
-        )
 
-        # Run daydream as a reasoning cycle without an envelope
-        # In full implementation, build EnrichedContext from random seed
-        await self._run_reasoning_cycle(context=None, is_daydream=True)
+        try:
+            await self.event_bus.publish(
+                "cognitive.daydream.start",
+                {"daydream_count": self._daydream_count},
+            )
 
-        await self.event_bus.publish(
-            "cognitive.daydream.end",
-            {"daydream_count": self._daydream_count},
-        )
+            # Build seed text from the seed selector (or stub)
+            seed_text = await self._build_daydream_seed_async()
+
+            # Create a synthetic Envelope so the reasoning cycle guard passes
+            from sentient.core.envelope import SourceType, TrustLevel, Priority
+
+            daydream_envelope = Envelope(
+                source_type=SourceType.INTERNAL_DAYDREAM,
+                plugin_name="cognitive_core.daydream",
+                processed_content=seed_text,
+                priority=Priority.TIER_3_NORMAL,
+                trust_level=TrustLevel.SYSTEM,
+                metadata={"is_daydream": True, "seed_source": "daydream_selector"},
+            )
+
+            # Build a minimal context dict (same pattern as _handle_revise_requested)
+            daydream_context = {
+                "envelope": daydream_envelope,
+                "related_memories": [],
+                "significance": {},
+                "sidebar": [],
+            }
+
+            # Generate a daydream-specific turn_id (cycle-local, not instance-level)
+            daydream_turn_id = f"daydream_{self._daydream_count}_{uuid.uuid4().hex[:8]}"
+
+            await self._run_reasoning_cycle(
+                context=daydream_context,
+                envelope=daydream_envelope,
+                is_daydream=True,
+                turn_id=daydream_turn_id,
+            )
+
+            await self.event_bus.publish(
+                "cognitive.daydream.end",
+                {"daydream_count": self._daydream_count},
+            )
+        except Exception as exc:
+            logger.exception("Daydream cycle error: %s", exc)
+        finally:
+            self._daydream_in_progress = False
 
     # === State save/restore ===
 
     async def _maybe_save_state(self) -> None:
         """If a daydream is in progress, save its state for potential resumption."""
-        if self._current_state is not None:
+        if self._daydream_in_progress and self._current_state is not None:
+            self._saved_states.append(self._current_state)
+            self._current_state = None
+            logger.debug("Daydream state saved due to user input interrupt")
+        elif self._current_state is not None:
             self._saved_states.append(self._current_state)
             self._current_state = None
 
@@ -747,7 +803,7 @@ class CognitiveCore(ModuleInterface):
             sidebar=[],
         )
 
-        await self._run_reasoning_cycle(reprocess_context)
+        await self._run_reasoning_cycle(reprocess_context, turn_id=turn_id)
         self._current_revision_count = 0
 
     # === Attention summary broadcast ===

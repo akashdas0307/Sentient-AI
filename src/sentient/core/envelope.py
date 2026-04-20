@@ -43,6 +43,7 @@ class SourceType(Enum):
     INTERNAL_LIMBIC = "internal_limbic"
     INTERNAL_HEALTH = "internal_health"
     INTERNAL_DREAM = "internal_dream"
+    INTERNAL_DAYDREAM = "internal_daydream"
     INTERNAL_WORLD_MODEL = "internal_world_model"
     INTERNAL_MEMORY = "internal_memory"
     INTERNAL_SCHEDULED = "internal_scheduled"
@@ -137,8 +138,8 @@ class Envelope:
         """True if this came from outside the system."""
         return self.source_type.value not in {
             "internal_limbic", "internal_health", "internal_dream",
-            "internal_world_model", "internal_memory", "internal_scheduled",
-            "internal_eal",
+            "internal_daydream", "internal_world_model", "internal_memory",
+            "internal_scheduled", "internal_eal",
         }
 
     def is_from_creator(self) -> bool:
