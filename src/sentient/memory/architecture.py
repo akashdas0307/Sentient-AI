@@ -512,16 +512,25 @@ class MemoryArchitecture(ModuleInterface):
 
             if fts_query:
                 try:
+                    # Build memory_type filter clause
+                    type_clause = ""
+                    type_params: list[str] = []
+                    if memory_types:
+                        placeholders = ",".join("?" * len(memory_types))
+                        type_clause = f" AND m.memory_type IN ({placeholders})"
+                        type_params = [mt.value for mt in memory_types]
+
                     rows = self._conn.execute(
-                        """
+                        f"""
                         SELECT m.* FROM memories m
                         JOIN memories_fts f ON m.id = f.id
                         WHERE memories_fts MATCH ?
                           AND (? = 1 OR m.is_archived = 0)
+                          {type_clause}
                         ORDER BY m.importance DESC, m.created_at DESC
                         LIMIT ?
                         """,
-                        (fts_query, 1 if include_archived else 0, limit),
+                        (fts_query, 1 if include_archived else 0, *type_params, limit),
                     ).fetchall()
                     for row in rows:
                         memory = dict(row)
@@ -544,6 +553,12 @@ class MemoryArchitecture(ModuleInterface):
                 )
                 if chroma_results.get("ids") and chroma_results["ids"][0]:
                     for idx, mem_id in enumerate(chroma_results["ids"][0]):
+                        # Filter by memory_type if specified
+                        if memory_types:
+                            chroma_meta = chroma_results.get("metadatas", [[{}]])[0][idx]
+                            if chroma_meta.get("memory_type") not in [mt.value for mt in memory_types]:
+                                continue
+
                         if mem_id in results_by_id:
                             results_by_id[mem_id]["similarity"] = (
                                 1.0 - chroma_results["distances"][0][idx]
@@ -628,7 +643,11 @@ class MemoryArchitecture(ModuleInterface):
         if self.semantic_store is None:
             return []
         try:
-            return await self.semantic_store.retrieve(query, k)
+            results = await self.semantic_store.retrieve(query, k)
+            if results:
+                return results
+            # Fallback: semantic_memory table was empty (no consolidation run yet)
+            return await self.retrieve(query, memory_types=[MemoryType.SEMANTIC], limit=k)
         except Exception as exc:
             logger.warning("Semantic retrieval failed: %s", exc)
             return []
@@ -638,10 +657,69 @@ class MemoryArchitecture(ModuleInterface):
         if self.procedural_store is None:
             return []
         try:
-            return await self.procedural_store.retrieve(context, k)
+            results = await self.procedural_store.retrieve(context, k)
+            if results:
+                return results
+            # Fallback: procedural_memory table was empty (no consolidation run yet)
+            return await self.retrieve(context, memory_types=[MemoryType.PROCEDURAL], limit=k)
         except Exception as exc:
             logger.warning("Procedural retrieval failed: %s", exc)
             return []
+
+    async def retrieve_recent(
+        self,
+        limit: int | None = None,
+        memory_types: list[MemoryType] | None = None,
+        include_archived: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Retrieve the most recent memories ordered by creation time.
+
+        Uses a direct SQL query (not FTS or semantic) to return memories
+        by timestamp regardless of content.
+        """
+        import json
+        start = time.time()
+        limit = limit or self.default_limit
+
+        if not self._conn:
+            return []
+
+        type_filter = ""
+        params: list[Any] = []
+        if memory_types:
+            type_filter = "AND memory_type IN (" + ",".join("?" * len(memory_types)) + ")"
+            params = [mt.value for mt in memory_types]
+        elif not include_archived:
+            type_filter = "AND is_archived = 0"
+            params = []
+
+        try:
+            rows = self._conn.execute(
+                f"""
+                SELECT * FROM memories
+                WHERE 1=1 {type_filter}
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                params + [limit],
+            ).fetchall()
+        except sqlite3.OperationalError as exc:
+            logger.warning("retrieve_recent query error: %s", exc)
+            return []
+
+        results = []
+        for row in rows:
+            memory = dict(row)
+            memory["entity_tags"] = json.loads(memory.get("entity_tags", "[]"))
+            memory["topic_tags"] = json.loads(memory.get("topic_tags", "[]"))
+            memory["emotional_tags"] = json.loads(memory.get("emotional_tags", "{}"))
+            memory["processed_content"] = memory["content"]
+            memory["retrieval_path"] = "recent"
+            results.append(memory)
+
+        self._retrieval_count += 1
+        self._last_retrieval_latency_ms = (time.time() - start) * 1000
+        return results
 
     async def count(self, memory_type: MemoryType | None = None) -> int:
         """Count stored memories."""

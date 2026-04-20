@@ -261,11 +261,11 @@ class APIServer:
             return {"entries": results}
 
         @self.app.get("/api/memory/recent")
-        async def recent_memory(limit: int = 20):
+        async def recent_memory(limit: int = 10):
             memory = self.lifecycle.get_module("memory")
             if memory is None:
                 return JSONResponse({"error": "memory module not available"}, status_code=503)
-            results = await memory.retrieve(query="", limit=limit)
+            results = await memory.retrieve_recent(limit=limit)
             return {"entries": results}
 
         @self.app.get("/api/memory/graph")
