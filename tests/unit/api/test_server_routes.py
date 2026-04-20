@@ -659,7 +659,7 @@ def test_search_memory_module_unavailable_returns_503(client, mock_lifecycle):
 def test_recent_memory_happy_path(client, mock_lifecycle):
     """GET /api/memory/recent returns recent entries."""
     mock_memory = MagicMock()
-    mock_memory.retrieve = AsyncMock(return_value=[{"id": "mem1", "content": "test"}])
+    mock_memory.retrieve_recent = AsyncMock(return_value=[{"id": "mem1", "content": "test"}])
     mock_lifecycle.get_module.side_effect = lambda name: mock_memory if name == "memory" else None
 
     response = client.get("/api/memory/recent", params={"limit": 10})
@@ -667,7 +667,7 @@ def test_recent_memory_happy_path(client, mock_lifecycle):
     data = response.json()
     assert "entries" in data
     assert data["entries"] == [{"id": "mem1", "content": "test"}]
-    mock_memory.retrieve.assert_called_once_with(query="", limit=10)
+    mock_memory.retrieve_recent.assert_called_once_with(limit=10)
 
 
 def test_recent_memory_module_unavailable_returns_503(client, mock_lifecycle):

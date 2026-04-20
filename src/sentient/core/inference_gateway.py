@@ -118,6 +118,20 @@ class InferenceGateway(ModuleInterface):
         self._litellm = None
         self._recent_calls: deque[dict[str, Any]] = deque(maxlen=200)
 
+    @staticmethod
+    def _get_text(message: Any) -> str:
+        """Extract text from a litellm message, falling back to reasoning_content.
+
+        Ollama cloud "thinking" models (glm-5.1, minimax-m2.7, kimi-k2.5) return
+        output in reasoning_content instead of content. This helper prefers content
+        when available and falls back to reasoning_content when content is empty.
+        """
+        raw = message.content or ""
+        reasoning = getattr(message, 'reasoning_content', None) or ""
+        if not raw and reasoning:
+            logger.debug("Using reasoning_content for model response (content was empty)")
+        return raw if raw else reasoning
+
     async def initialize(self) -> None:
         """Verify provider availability and load litellm."""
         try:
@@ -292,7 +306,7 @@ class InferenceGateway(ModuleInterface):
             latency_ms = (time.time() - start) * 1000
 
             # Extract response
-            text = response.choices[0].message.content or ""
+            text = self._get_text(response.choices[0].message)
             input_tokens = getattr(response.usage, "prompt_tokens", 0)
             output_tokens = getattr(response.usage, "completion_tokens", 0)
 
@@ -341,7 +355,7 @@ class InferenceGateway(ModuleInterface):
                             ),
                             timeout=request.timeout_seconds,
                         )
-                        text = retry_response.choices[0].message.content or ""
+                        text = self._get_text(retry_response.choices[0].message)
                         text = _strip_markdown_fences(text)
                         request.response_format.model_validate_json(text)
                     except Exception as retry_error:

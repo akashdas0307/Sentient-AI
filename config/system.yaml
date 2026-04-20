@@ -80,6 +80,15 @@ harness:
   workspace_dir: ./data/harness_workspace
 
 sleep:
+  duration:
+    min_hours: 6
+    max_hours: 12
+  default_circadian:
+    sleep_hour: 23
+    wake_hour: 7
+  stages:
+    settling_minutes: 45
+    pre_wake_minutes: 45
   consolidation:
     enabled: true
     schedule: daily

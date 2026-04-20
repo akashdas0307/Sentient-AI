@@ -63,7 +63,8 @@ async def test_thalamus_to_checkpost_pipeline(bus, gateway):
     await asyncio.sleep(0.3)
 
     assert len(events_received) >= 1
-    envelope = events_received[0]["envelope"]
+    raw_envelope = events_received[0]["envelope"]
+    envelope = raw_envelope if isinstance(raw_envelope, Envelope) else Envelope.from_dict(raw_envelope)
     assert "urgent" in envelope.processed_content.lower()
     assert envelope.priority == Priority.TIER_1_IMMEDIATE
 
@@ -98,8 +99,9 @@ async def test_checkpost_to_queue_zone_pipeline(bus, gateway):
     await asyncio.sleep(0.3)
 
     assert len(events_received) >= 1
-    assert events_received[0]["envelope"] is envelope
-    assert envelope.checkpost_processed is True
+    raw_envelope = events_received[0]["envelope"]
+    result_envelope = raw_envelope if isinstance(raw_envelope, Envelope) else Envelope.from_dict(raw_envelope)
+    assert result_envelope.checkpost_processed is True
 
     await queue_zone.shutdown()
 
@@ -254,6 +256,21 @@ async def test_envelope_metadata_enrichment(bus, gateway, memory):
     await tlp.initialize()
     await tlp.start()
 
+    # Capture processed envelopes from pipeline events
+    # (EventBus serializes Envelope to dict, so we must inspect
+    # the envelopes that come out of each stage, not the input object)
+    checkpost_results = []
+    tlp_results = []
+
+    async def track_checkpost(payload):
+        checkpost_results.append(payload)
+
+    async def track_tlp(payload):
+        tlp_results.append(payload)
+
+    await bus.subscribe("checkpost.tagged", track_checkpost)
+    await bus.subscribe("tlp.enriched", track_tlp)
+
     # Tier 1 envelope → bypasses QueueZone hold queue
     envelope = Envelope(
         source_type=SourceType.CHAT,
@@ -266,9 +283,19 @@ async def test_envelope_metadata_enrichment(bus, gateway, memory):
     await bus.publish("input.classified", {"envelope": envelope})
     await asyncio.sleep(0.5)
 
-    assert envelope.checkpost_processed is True, "Checkpost did not mark envelope"
-    assert envelope.tlp_enriched is True, "TLP did not mark envelope"
-    assert envelope.significance is not None, "TLP did not set significance"
+    # Checkpost should have processed and tagged the envelope
+    assert len(checkpost_results) >= 1, "Checkpost did not publish tagged event"
+    raw_envelope = checkpost_results[0]["envelope"]
+    result_envelope = raw_envelope if isinstance(raw_envelope, Envelope) else Envelope.from_dict(raw_envelope)
+    assert result_envelope.checkpost_processed is True, "Checkpost did not mark envelope"
+
+    # TLP should have enriched the envelope
+    assert len(tlp_results) >= 1, "TLP did not publish enriched event"
+    raw_context = tlp_results[0]["context"]
+    raw_tlp_envelope = raw_context["envelope"]
+    tlp_envelope = raw_tlp_envelope if isinstance(raw_tlp_envelope, Envelope) else Envelope.from_dict(raw_tlp_envelope)
+    assert tlp_envelope.tlp_enriched is True, "TLP did not mark envelope"
+    assert tlp_envelope.significance is not None, "TLP did not set significance"
 
     await tlp.shutdown()
     await queue_zone.shutdown()

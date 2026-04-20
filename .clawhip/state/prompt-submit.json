@@ -1,0 +1,8 @@
+{
+  "observed_at": "2026-04-20T13:50:31.499Z",
+  "provider": "claude-code",
+  "event_name": "UserPromptSubmit",
+  "session_id": "2334301f-805c-4da9-bab6-543637caedc0",
+  "turn_id": null,
+  "prompt_summary": "/oh-my-claudecode:setup"
+}

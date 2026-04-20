@@ -645,6 +645,75 @@ async def test_fallback_without_fallback_config() -> None:
     assert "All endpoints failed" in response.error
 
 
+@pytest.mark.asyncio
+async def test_reasoning_content_fallback() -> None:
+    """When content is empty but reasoning_content has text, use reasoning_content."""
+    gw = _make_gateway()
+    gw._litellm = MagicMock()
+
+    # Simulate an Ollama thinking model response: content="", reasoning_content="actual output"
+    response = MagicMock()
+    response.choices = [MagicMock()]
+    response.choices[0].message.content = ""
+    response.choices[0].message.reasoning_content = "Thinking model output"
+    response.usage.prompt_tokens = 10
+    response.usage.completion_tokens = 20
+
+    gw._litellm.acompletion = AsyncMock(return_value=response)
+    gw._litellm.completion_cost = MagicMock(return_value=0.0)
+
+    request = InferenceRequest(model_label="cognitive-core", prompt="test")
+    result = await gw.infer(request)
+
+    assert result.text == "Thinking model output"
+    assert result.error is None
+
+
+@pytest.mark.asyncio
+async def test_reasoning_content_prefers_content() -> None:
+    """When both content and reasoning_content exist, prefer content."""
+    gw = _make_gateway()
+    gw._litellm = MagicMock()
+
+    response = MagicMock()
+    response.choices = [MagicMock()]
+    response.choices[0].message.content = "Final answer"
+    response.choices[0].message.reasoning_content = "Chain of thought"
+    response.usage.prompt_tokens = 10
+    response.usage.completion_tokens = 20
+
+    gw._litellm.acompletion = AsyncMock(return_value=response)
+    gw._litellm.completion_cost = MagicMock(return_value=0.0)
+
+    request = InferenceRequest(model_label="cognitive-core", prompt="test")
+    result = await gw.infer(request)
+
+    assert result.text == "Final answer"
+
+
+@pytest.mark.asyncio
+async def test_reasoning_content_no_attribute() -> None:
+    """When reasoning_content attribute doesn't exist, use content as normal."""
+    gw = _make_gateway()
+    gw._litellm = MagicMock()
+
+    response = MagicMock()
+    response.choices = [MagicMock()]
+    response.choices[0].message.content = "Normal response"
+    # No reasoning_content attribute
+    del response.choices[0].message.reasoning_content
+    response.usage.prompt_tokens = 10
+    response.usage.completion_tokens = 20
+
+    gw._litellm.acompletion = AsyncMock(return_value=response)
+    gw._litellm.completion_cost = MagicMock(return_value=0.0)
+
+    request = InferenceRequest(model_label="cognitive-core", prompt="test")
+    result = await gw.infer(request)
+
+    assert result.text == "Normal response"
+
+
 # ---------------------------------------------------------------------------
 # 8. Structured output (response_format) enforcement
 # ---------------------------------------------------------------------------

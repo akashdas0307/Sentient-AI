@@ -3,6 +3,13 @@ import { useSentientStore } from '../store/useSentientStore';
 import type { WSMessage } from '../types';
 import type { InferenceCall } from '../types/gateway';
 
+/** Normalize timestamp to int milliseconds. Backend sends float seconds; frontend expects ms. */
+function normalizeTimestamp(ts: number | undefined): number {
+  if (ts === undefined) return Date.now();
+  // If ts looks like seconds (< year 2001 in ms), convert to ms
+  return ts < 1e12 ? Math.floor(ts * 1000) : Math.floor(ts);
+}
+
 const MAX_RETRIES = 10;
 const MAX_SENT_TURN_IDS = 200;
 
@@ -32,6 +39,9 @@ export const useWebSocket = (url: string) => {
     socket.onmessage = (event) => {
       try {
         const message: WSMessage = JSON.parse(event.data);
+
+        // Safety net: ensure top-level timestamp is always in ms
+        message.timestamp = normalizeTimestamp(message.timestamp);
 
         // Skip chat.input.received if we already added it optimistically (prevents duplicate)
         let skipAdd = false;
@@ -75,7 +85,7 @@ export const useWebSocket = (url: string) => {
               assistant_reply: (message as any).text || '',
               events: [],
               started_at: 0,
-              completed_at: Date.now() / 1000,
+              completed_at: normalizeTimestamp(undefined),
               is_complete: true,
             };
             useSentientStore.getState().setLastTurn(turn);
@@ -95,7 +105,7 @@ export const useWebSocket = (url: string) => {
           case 'inference.call.complete': {
             const payload = message as any;
             const call: InferenceCall = {
-              timestamp: payload.timestamp || Date.now() / 1000,
+              timestamp: normalizeTimestamp(payload.timestamp),
               model_label: payload.model_label || 'unknown',
               model_actual: payload.model_actual || 'unknown',
               provider: payload.provider || 'unknown',
@@ -112,7 +122,7 @@ export const useWebSocket = (url: string) => {
           case 'inference.call.failed': {
             const payload = message as any;
             const call: InferenceCall = {
-              timestamp: payload.timestamp || Date.now() / 1000,
+              timestamp: normalizeTimestamp(payload.timestamp),
               model_label: payload.model_label || 'unknown',
               model_actual: 'unknown',
               provider: payload.provider || 'unknown',
@@ -129,7 +139,7 @@ export const useWebSocket = (url: string) => {
           case 'inference.fallback.triggered': {
             const payload = message as any;
             const call: InferenceCall = {
-              timestamp: payload.timestamp || Date.now() / 1000,
+              timestamp: normalizeTimestamp(payload.timestamp),
               model_label: payload.model_label || 'unknown',
               model_actual: payload.model_actual || 'unknown',
               provider: payload.provider || 'unknown',

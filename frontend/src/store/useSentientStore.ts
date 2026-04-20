@@ -109,7 +109,7 @@ export const useSentientStore = create<SentientState>()(
 
       addMessage: (message) => set((state) => {
         // Prevent duplicate messages based on timestamp and type
-        const exists = state.messages.some(m => m.timestamp === message.timestamp && m.type === message.type);
+        const exists = state.messages.some(m => Math.abs(m.timestamp - message.timestamp) < 1000 && m.type === message.type);
         if (exists) return state;
 
         const newMessages = [message, ...state.messages].slice(0, MAX_MESSAGES);

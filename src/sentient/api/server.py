@@ -37,6 +37,11 @@ from sentient.core.event_bus import EventBus, get_event_bus, _to_json_safe
 logger = logging.getLogger(__name__)
 
 
+def now_ms() -> int:
+    """Current time as integer milliseconds since epoch."""
+    return int(time.time() * 1000)
+
+
 async def _safe_send_json(websocket, data) -> bool:
     """Send data via WebSocket using JSON, with belt-and-suspenders serialization.
 
@@ -256,11 +261,11 @@ class APIServer:
             return {"entries": results}
 
         @self.app.get("/api/memory/recent")
-        async def recent_memory(limit: int = 20):
+        async def recent_memory(limit: int = 10):
             memory = self.lifecycle.get_module("memory")
             if memory is None:
                 return JSONResponse({"error": "memory module not available"}, status_code=503)
-            results = await memory.retrieve(query="", limit=limit)
+            results = await memory.retrieve_recent(limit=limit)
             return {"entries": results}
 
         @self.app.get("/api/memory/graph")
@@ -331,6 +336,33 @@ class APIServer:
                 "current_stage": metrics.get("current_stage", "unknown"),
             }
 
+        @self.app.post("/api/debug/sleep_cycle")
+        async def trigger_debug_sleep(request: dict | None = None):
+            """Dev-only: trigger a short sleep cycle for testing.
+
+            Only available when SENTIENT_ENV=development.
+            """
+            import os
+            if os.environ.get("SENTIENT_ENV", "production") != "development":
+                return JSONResponse(
+                    {"error": "debug endpoints only available in development mode"},
+                    status_code=403,
+                )
+            scheduler = self.lifecycle.get_module("sleep_scheduler")
+            if scheduler is None:
+                return JSONResponse({"error": "sleep scheduler not available"}, status_code=503)
+            if scheduler.current_stage.value != "awake":
+                return JSONResponse(
+                    {"error": f"already sleeping (stage={scheduler.current_stage.value})"},
+                    status_code=409,
+                )
+            body = request or {}
+            requested_hours = body.get("requested_hours", 0.1)
+            # Clamp to safe range for debugging
+            requested_hours = max(0.01, min(1.0, requested_hours))
+            await scheduler.enter_sleep(requested_hours=requested_hours)
+            return {"status": "sleep_entered", "requested_hours": requested_hours}
+
         @self.app.get("/api/persona/state")
         async def get_persona_state():
             if self.persona:
@@ -349,14 +381,14 @@ class APIServer:
                     "type": "health",
                     "data": health,
                     "health": health,
-                    "timestamp": time.time(),
+                    "timestamp": now_ms(),
                 })
 
                 # Send welcome message
                 await _safe_send_json(websocket, {
                     "type": "welcome",
                     "text": "Connected to Sentient Framework.",
-                    "timestamp": time.time(),
+                    "timestamp": now_ms(),
                 })
 
                 # Send recent events for backfill
@@ -490,11 +522,11 @@ class APIServer:
                         "assistant_reply": message.get("text", ""),
                         "events": [],
                         "started_at": 0,
-                        "completed_at": time.time(),
+                        "completed_at": now_ms(),
                         "is_complete": True,
                     },
                     "done": True,
-                    "timestamp": time.time(),
+                    "timestamp": now_ms(),
                     "payload": {"sender": "assistant"}
                 }
 
@@ -523,6 +555,9 @@ class APIServer:
         event_name = payload.get("event_type", "unknown")
         turn_id = payload.get("turn_id")
         timestamp = payload.get("timestamp", time.time())
+        # Normalize: if timestamp looks like seconds (< 1e12), convert to ms
+        if isinstance(timestamp, (int, float)) and timestamp < 1e12:
+            timestamp = int(timestamp * 1000)
 
         # Determine stage from event prefix
         stage = self._map_event_to_stage(event_name)
@@ -563,7 +598,7 @@ class APIServer:
                         "type": "health",
                         "data": health,
                         "health": health,
-                        "timestamp": time.time(),
+                        "timestamp": now_ms(),
                     }
                     dead = set()
                     for ws in self._ws_clients:
