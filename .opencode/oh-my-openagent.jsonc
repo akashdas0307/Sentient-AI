@@ -1,0 +1,153 @@
+{
+  // ─── Agent Configuration ─────────────────────────────────────────────────
+  // Maps OMOA agents to Ollama cloud models via inference_gateway.yaml labels.
+  // Sisyphus and Atlas have edit:ask / write:ask to enforce RED gate at tool layer.
+
+  "agents": {
+    "sisyphus": {
+      "model": "ollama/glm-5.1:cloud",
+      "permission": {
+        "edit": "ask",
+        "write": "ask",
+        "bash": "allow"
+      },
+      "description": "Primary orchestrator. Dispatches work to backend workers and OMOA-native agents. RED GATE: never edits src/sentient/**, tests/**, or frontend/src/** directly."
+    },
+    "atlas": {
+      "model": "ollama/glm-5.1:cloud",
+      "permission": {
+        "edit": "ask",
+        "write": "ask",
+        "bash": "allow"
+      },
+      "description": "Executes structured plans. edit/write restricted to .opencode/, .agent-state/, scripts/, docs/."
+    },
+    "hephaestus": {
+      "model": "ollama/glm-5.1:cloud",
+      "permission": {
+        "edit": "allow",
+        "write": "allow",
+        "bash": "allow"
+      },
+      "description": "Autonomous deep worker for config design and architecture decisions. Full write access to infra files."
+    },
+    "oracle": {
+      "model": "ollama/glm-5.1:cloud",
+      "permission": {
+        "edit": "deny",
+        "write": "deny",
+        "bash": "allow"
+      },
+      "description": "Read-only architecture consultant. Cross-checks designs and configs."
+    },
+    "prometheus": {
+      "model": "ollama/glm-5.1:cloud",
+      "permission": {
+        "edit": "allow",
+        "write": "allow",
+        "bash": "allow"
+      },
+      "description": "Strategic planner. Writes plans to .agent-state/shared/plans/."
+    },
+    "metis": {
+      "model": "ollama/glm-5.1:cloud",
+      "permission": {
+        "edit": "deny",
+        "write": "deny",
+        "bash": "allow"
+      },
+      "description": "Pre-planning gap analyzer. Identifies ambiguities and AI failure points."
+    },
+    "momus": {
+      "model": "ollama/glm-5.1:cloud",
+      "permission": {
+        "edit": "deny",
+        "write": "deny",
+        "bash": "allow"
+      },
+      "description": "Ruthless sign-off reviewer. Quality gate for all deliverables."
+    },
+    "librarian": {
+      "model": "ollama/kimi-k2.5:cloud",
+      "permission": {
+        "edit": "deny",
+        "write": "allow",
+        "bash": "allow"
+      },
+      "description": "Fetches and summarizes web docs. Writes to docs/phases/phase-infra-1/research/."
+    },
+    "explore": {
+      "model": "ollama/kimi-k2.5:cloud",
+      "permission": {
+        "edit": "deny",
+        "write": "deny",
+        "bash": "allow"
+      },
+      "description": "Read-only codebase explorer. Runs env checks and file analysis."
+    }
+  },
+
+  // ─── Category → Model Mapping ────────────────────────────────────────────
+  // Matches inference_gateway.yaml Ollama labels for consistency.
+
+  "categories": {
+    "ultrabrain": {
+      "model": "ollama/glm-5.1:cloud",
+      "description": "Max reasoning — architecture, debugging, review"
+    },
+    "deep": {
+      "model": "ollama/glm-5.1:cloud",
+      "description": "Complex autonomous work — config design, state architecture"
+    },
+    "artistry": {
+      "model": "ollama/glm-5.1:cloud",
+      "description": "Creative/unconventional problem-solving"
+    },
+    "visual-engineering": {
+      "model": "ollama/gemini-3-flash-preview:cloud",
+      "description": "Frontend, UI/UX (Gemini for design capability)"
+    },
+    "writing": {
+      "model": "ollama/kimi-k2.5:cloud",
+      "description": "Documentation, research, codebase analysis (long-context)"
+    },
+    "quick": {
+      "model": "ollama/minimax-m2.7:cloud",
+      "description": "Trivial tasks — single-file changes, boilerplate, shell"
+    },
+    "unspecified-high": {
+      "model": "ollama/glm-5.1:cloud",
+      "description": "Complex work fallback"
+    },
+    "unspecified-low": {
+      "model": "ollama/minimax-m2.7:cloud",
+      "description": "Routine work fallback"
+    }
+  },
+
+  // ─── Background Task Concurrency ─────────────────────────────────────────
+  // Season 3 RAM budget: max 3 parallel agents
+
+  "background_task": {
+    "providerConcurrency": {
+      "ollama": 3
+    }
+  },
+
+  // ─── Hooks ──────────────────────────────────────────────────────────────
+
+  "hooks": {
+    "session-recovery": true,
+    "background-notification": true,
+    "start-work": true,
+    "task-reminder": true,
+    "discord-notify": {
+      "command": "bash scripts/kimaki-notify.sh",
+      "events": ["task.complete", "task.failed", "session.recovered"]
+    },
+    "state-sync-tick": {
+      "command": "opencode run --print '@state-sync run'",
+      "events": ["session.start", "task.complete"]
+    }
+  }
+}
