@@ -287,8 +287,6 @@ async def test_save_developmental_handles_write_error(
     """If the file cannot be written, an exception is logged but not raised."""
     create_constitutional_yaml(tmp_identity_dir["constitutional"])
     create_developmental_yaml(tmp_identity_dir["developmental"])
-    # Make file read-only to cause write failure
-    tmp_identity_dir["developmental"].chmod(0o444)
 
     manager = PersonaManager({"identity_files": {
         "constitutional": str(tmp_identity_dir["constitutional"]),
@@ -296,11 +294,18 @@ async def test_save_developmental_handles_write_error(
     }}, fresh_bus)
     await manager.initialize()
 
-    manager._save_developmental()  # Should not raise
+    # Make the *directory* read-only so the atomic write (tmpfile + os.replace)
+    # cannot create the .tmp file or replace the target. chmod on the file
+    # alone is insufficient on Linux — the owner can still write via tmpfile.
+    identity_dir = tmp_identity_dir["developmental"].parent
+    identity_dir.chmod(0o444)
 
-    assert "Failed to save" in caplog.text or "permission" in caplog.text.lower()
-    # Restore write permission for cleanup
-    tmp_identity_dir["developmental"].chmod(0o644)
+    try:
+        manager._save_developmental()  # Should not raise
+        assert "Failed to save" in caplog.text or "permission" in caplog.text.lower()
+    finally:
+        # Restore directory permissions for cleanup
+        identity_dir.chmod(0o755)
 
 
 # ---------------------------------------------------------------------------
