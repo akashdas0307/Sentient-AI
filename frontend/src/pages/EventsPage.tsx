@@ -83,7 +83,7 @@ export const EventsPage: React.FC = () => {
               <Filter size={14} className="text-muted-foreground" />
             </div>
             <div className="flex gap-2">
-              <Select value={filterStage} onValueChange={setFilterStage}>
+              <Select value={filterStage} onValueChange={(v) => { if (v) setFilterStage(v); }}>
                 <SelectTrigger className="w-[160px] h-9 bg-card border-border rounded-lg text-xs font-medium">
                   <SelectValue placeholder="All Stages" />
                 </SelectTrigger>
@@ -96,7 +96,7 @@ export const EventsPage: React.FC = () => {
                 </SelectContent>
               </Select>
 
-              <Select value={filterType} onValueChange={setFilterType}>
+              <Select value={filterType} onValueChange={(v) => { if (v) setFilterType(v); }}>
                 <SelectTrigger className="w-[180px] h-9 bg-card border-border rounded-lg text-xs font-medium">
                   <SelectValue placeholder="All Types" />
                 </SelectTrigger>

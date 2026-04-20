@@ -44,6 +44,11 @@ from sentient.prajna.queue_zone import QueueZone
 from sentient.prajna.temporal_limbic import TemporalLimbicProcessor
 from sentient.sleep.scheduler import SleepScheduler
 from sentient.sleep.consolidation import ConsolidationEngine
+from sentient.sleep.contradiction_resolver import ContradictionResolver
+from sentient.sleep.developmental_consolidator import DevelopmentalConsolidator
+from sentient.sleep.identity_drift_detector import IdentityDriftDetector
+from sentient.sleep.procedural_refiner import ProceduralRefiner
+from sentient.sleep.wm_calibrator import WMCalibrator
 from sentient.thalamus.gateway import Thalamus
 from sentient.thalamus.plugins.chat_input import ChatInputPlugin
 
@@ -84,7 +89,7 @@ async def build_and_start() -> tuple[LifecycleManager, Any]:
     lifecycle = LifecycleManager(event_bus)
 
     # === 1. Inference Gateway (must be first) ===
-    inference_gateway = InferenceGateway(inference_cfg)
+    inference_gateway = InferenceGateway(inference_cfg, event_bus=event_bus)
     lifecycle.register(inference_gateway, essential=True)
 
     # === 2. Memory Architecture ===
@@ -165,11 +170,52 @@ async def build_and_start() -> tuple[LifecycleManager, Any]:
     lifecycle.register(brainstem)
 
     # === 8. Sleep Scheduler ===
+    # Instantiate contradiction resolver
+    contradiction_resolver = ContradictionResolver(
+        memory_architecture=memory,
+        inference_gateway=inference_gateway,
+        event_bus=event_bus,
+        config=system_cfg.get("sleep", {}).get("contradiction_resolution", {}),
+    )
+    # Instantiate WM calibrator
+    wm_calibrator = WMCalibrator(
+        world_model=world_model,
+        memory_architecture=memory,
+        event_bus=event_bus,
+        config=system_cfg.get("sleep", {}).get("wm_calibration", {}),
+    )
+    # Instantiate procedural refiner
+    procedural_refiner = ProceduralRefiner(
+        memory=memory,
+        event_bus=event_bus,
+        config=system_cfg.get("sleep", {}).get("procedural_refinement", {}),
+    )
+    # Instantiate identity drift detector
+    identity_drift_detector = IdentityDriftDetector(
+        persona=persona,
+        memory=memory,
+        event_bus=event_bus,
+        config=system_cfg.get("sleep", {}).get("identity_drift", {}),
+    )
+    # Instantiate developmental consolidator
+    developmental_consolidator = DevelopmentalConsolidator(
+        memory=memory,
+        gateway=inference_gateway,
+        persona=persona,
+        event_bus=event_bus,
+        config=system_cfg.get("sleep", {}).get("developmental_consolidation", {}),
+    )
+
     sleep = SleepScheduler(
         system_cfg.get("sleep", {}),
         lifecycle,
         memory=memory,
         consolidation_engine=consolidation_engine,
+        contradiction_resolver=contradiction_resolver,
+        wm_calibrator=wm_calibrator,
+        procedural_refiner=procedural_refiner,
+        identity_drift_detector=identity_drift_detector,
+        developmental_consolidator=developmental_consolidator,
         event_bus=event_bus,
     )
     lifecycle.register(sleep, essential=True)
@@ -192,6 +238,8 @@ async def build_and_start() -> tuple[LifecycleManager, Any]:
         chat_output_plugin=chat_output,
         health_pulse_network=health_network,
         event_bus=event_bus,
+        inference_gateway=inference_gateway,
+        persona=persona,
     )
     await api_server.start()
 

@@ -56,7 +56,7 @@ export interface HealthSnapshot {
   };
 }
 
-export type WSMessageType = "health" | "welcome" | "event" | "reply" | "pong";
+export type WSMessageType = "health" | "welcome" | "event" | "reply" | "pong" | "inference.call.complete" | "inference.call.failed" | "inference.fallback.triggered";
 
 export interface WSMessage {
   type: WSMessageType;
@@ -82,4 +82,13 @@ export interface SystemStatus {
 export interface MemoryStats {
   count: number;
   total_memories?: number;
+}
+
+export interface MonologueEntry {
+  id: string;
+  monologue: string;
+  is_daydream: boolean;
+  decision_count: number;
+  duration_ms: number | null;
+  timestamp: number;
 }

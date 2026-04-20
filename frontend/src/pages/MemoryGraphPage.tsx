@@ -8,7 +8,7 @@ import {
   useEdgesState,
   type Node,
   type Edge,
-  type BackgroundVariant,
+  BackgroundVariant,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { MemoryNode, MEMORY_TYPE_COLORS, MEMORY_TYPE_LABELS, type MemoryNodeData } from '../components/MemoryNode';
@@ -203,7 +203,7 @@ export const MemoryGraphPage: React.FC = () => {
   /* Derive graph from entries --------------------------------------- */
   useEffect(() => {
     const n = layoutNodes(entries);
-    setNodes(n);
+    setNodes(n as any);
     // If we have no edges (e.g. from apiEdges), we could still build some based on tags
     // but the API links should be primary.
     if (edges.length === 0 && entries.length > 0) {

@@ -1,13 +1,16 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { useSentientStore } from '../store/useSentientStore';
 import type { WSMessage } from '../types';
+import type { InferenceCall } from '../types/gateway';
 
 const MAX_RETRIES = 10;
+const MAX_SENT_TURN_IDS = 200;
 
 export const useWebSocket = (url: string) => {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number>(0);
   const retryCountRef = useRef<number>(0);
+  const sentTurnIdsRef = useRef<Set<string>>(new Set());
 
   const setConnected = useSentientStore((s) => s.setConnected);
 
@@ -30,12 +33,37 @@ export const useWebSocket = (url: string) => {
       try {
         const message: WSMessage = JSON.parse(event.data);
 
-        // Always add to message stream
-        useSentientStore.getState().addMessage(message);
+        // Skip chat.input.received if we already added it optimistically (prevents duplicate)
+        let skipAdd = false;
+        if (message.type === 'event' && message.event_name === 'chat.input.received') {
+          const eventTurnId = (message as any).turn_id;
+          if (eventTurnId && sentTurnIdsRef.current.has(eventTurnId)) {
+            sentTurnIdsRef.current.delete(eventTurnId);
+            skipAdd = true;
+          }
+        }
+
+        if (!skipAdd) {
+          useSentientStore.getState().addMessage(message);
+        }
 
         switch (message.type) {
           case 'event':
-            // Events are already added to message stream above
+            // chat.input.received dedup already handled above
+            // Handle cognitive.cycle.complete for inner monologue
+            if (message.event_name === 'cognitive.cycle.complete') {
+              const monologue = (message.data as any)?.monologue || '';
+              if (monologue) { // Only add non-empty monologue entries
+                useSentientStore.getState().addMonologueEntry({
+                  id: (message.data as any)?.cycle_id || message.timestamp.toString(),
+                  monologue,
+                  is_daydream: (message.data as any)?.is_daydream || false,
+                  decision_count: (message.data as any)?.decision_count || 0,
+                  duration_ms: (message.data as any)?.duration_ms || null,
+                  timestamp: message.timestamp,
+                });
+              }
+            }
             break;
           case 'health':
             useSentientStore.getState().setHealthSnapshot(message.health || (message as any).data);
@@ -64,6 +92,57 @@ export const useWebSocket = (url: string) => {
               .then((data) => useSentientStore.getState().setMemoryStats(data))
               .catch(() => {});
             break;
+          case 'inference.call.complete': {
+            const payload = message as any;
+            const call: InferenceCall = {
+              timestamp: payload.timestamp || Date.now() / 1000,
+              model_label: payload.model_label || 'unknown',
+              model_actual: payload.model_actual || 'unknown',
+              provider: payload.provider || 'unknown',
+              fallback_used: false,
+              duration_ms: payload.duration_ms || 0,
+              tokens_in: payload.tokens_in || 0,
+              tokens_out: payload.tokens_out || 0,
+              cost_usd: payload.cost_usd || 0,
+              error: null,
+            };
+            useSentientStore.getState().addGatewayCall(call);
+            break;
+          }
+          case 'inference.call.failed': {
+            const payload = message as any;
+            const call: InferenceCall = {
+              timestamp: payload.timestamp || Date.now() / 1000,
+              model_label: payload.model_label || 'unknown',
+              model_actual: 'unknown',
+              provider: payload.provider || 'unknown',
+              fallback_used: false,
+              duration_ms: payload.duration_ms || 0,
+              tokens_in: 0,
+              tokens_out: 0,
+              cost_usd: 0,
+              error: payload.error || 'Unknown error',
+            };
+            useSentientStore.getState().addGatewayCall(call);
+            break;
+          }
+          case 'inference.fallback.triggered': {
+            const payload = message as any;
+            const call: InferenceCall = {
+              timestamp: payload.timestamp || Date.now() / 1000,
+              model_label: payload.model_label || 'unknown',
+              model_actual: payload.model_actual || 'unknown',
+              provider: payload.provider || 'unknown',
+              fallback_used: true,
+              duration_ms: payload.duration_ms || 0,
+              tokens_in: payload.tokens_in || 0,
+              tokens_out: payload.tokens_out || 0,
+              cost_usd: payload.cost_usd || 0,
+              error: null,
+            };
+            useSentientStore.getState().addGatewayCall(call);
+            break;
+          }
         }
       } catch (err) {
         console.error('Failed to parse WS message', err);
@@ -87,9 +166,20 @@ export const useWebSocket = (url: string) => {
   }, [url, setConnected]);
 
   const sendChat = useCallback((text: string, sessionId: string = 'default') => {
+    const turnId = `turn_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+    // Track sent turn_id to prevent duplicate when server echoes back
+    sentTurnIdsRef.current.add(turnId);
+    // Keep set bounded
+    if (sentTurnIdsRef.current.size > MAX_SENT_TURN_IDS) {
+      const arr = Array.from(sentTurnIdsRef.current);
+      sentTurnIdsRef.current = new Set(arr.slice(-MAX_SENT_TURN_IDS));
+    }
+
     // Optimistically add user message to store for persistence
     useSentientStore.getState().addMessage({
-      type: 'reply', // Using reply type but with user flag or just filtering later
+      type: 'reply',
+      turn_id: turnId,
       timestamp: Date.now(),
       text: text,
       payload: { sender: 'user' }
@@ -100,6 +190,7 @@ export const useWebSocket = (url: string) => {
         type: 'chat',
         text,
         session_id: sessionId,
+        turn_id: turnId,
       }));
       return true;
     }
@@ -108,9 +199,19 @@ export const useWebSocket = (url: string) => {
 
   useEffect(() => {
     connect();
+
+    // Poll gateway status every 10s
+    const pollInterval = setInterval(() => {
+      fetch('/api/gateway/status')
+        .then((r) => r.json())
+        .then((data) => useSentientStore.getState().setGatewayStatus(data))
+        .catch(() => {});
+    }, 10000);
+
     return () => {
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (socketRef.current) socketRef.current.close();
+      clearInterval(pollInterval);
     };
   }, [connect]);
 

@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import shutil
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -64,47 +66,104 @@ class HarnessAdapter(ModuleInterface):
         self.harness_command = config.get("command", ["claude"])
         self.timeout_seconds = config.get("timeout_seconds", 300)
         self.workdir = config.get("workdir", ".")
+        self.enabled = config.get("enabled", True)
+        self.workspace_dir = config.get("workspace_dir", self.workdir)
+
+        # Validate workspace_dir is absolute
+        if not os.path.isabs(self.workspace_dir):
+            self.workspace_dir = os.path.abspath(self.workspace_dir)
+
+        # Rate limit to 1 concurrent task (MVS constraint)
+        self._semaphore = asyncio.Semaphore(1)
+        # Will be set during initialize()
+        self._available: bool | None = None
+        self._shutdown_flag = False
 
         self._active_tasks: dict[str, TaskDelegation] = {}
         self._completed_count = 0
         self._failed_count = 0
 
     async def initialize(self) -> None:
-        # Verify harness is available (best effort)
+        # Verify harness is available on PATH
+        which_result = shutil.which(self.harness_command[0])
+        self._available = bool(which_result)
+        if not self._available:
+            logger.warning(
+                "Harness command '%s' not found on PATH — delegation will return unavailable error",
+                self.harness_command[0],
+            )
         logger.info("Harness Adapter initialized (harness=%s)", self.harness_name)
 
     async def start(self) -> None:
-        # Subscribe to delegation requests
+        # Subscribe to both harness.delegate and decide.delegate
         await self.event_bus.subscribe("harness.delegate", self._handle_delegation)
-        self.set_status(ModuleStatus.HEALTHY)
+        await self.event_bus.subscribe("decide.delegate", self._handle_delegation)
+        # Set status based on enabled and availability
+        if self.enabled and self._available:
+            self.set_status(ModuleStatus.HEALTHY)
+        elif self.enabled and not self._available:
+            self.set_status(ModuleStatus.DEGRADED)
+        else:
+            self.set_status(ModuleStatus.DEGRADED)
 
     async def shutdown(self) -> None:
-        # Cancel any in-flight tasks
-        pass
+        # Signal no new delegations should be accepted
+        self._shutdown_flag = True
 
     async def _handle_delegation(self, payload: dict[str, Any]) -> None:
         """Receive a delegation request from the Cognitive Core."""
-        task = TaskDelegation(
-            task_id=str(uuid.uuid4()),
-            goal=payload.get("goal", ""),
-            context=payload.get("context", {}),
-            constraints=payload.get("constraints", {}),
-            success_criteria=payload.get("success_criteria", []),
-        )
-        self._active_tasks[task.task_id] = task
-        result = await self.delegate_task(task)
-        del self._active_tasks[task.task_id]
+        # Early exit checks
+        if not self.enabled:
+            await self.event_bus.publish(
+                "harness.task.complete",
+                {
+                    "task_id": payload.get("task_id", str(uuid.uuid4())),
+                    "success": False,
+                    "output": "",
+                    "error": "Harness adapter disabled by config",
+                    "duration_seconds": 0.0,
+                },
+            )
+            return
 
-        await self.event_bus.publish(
-            "harness.task.complete",
-            {
-                "task_id": task.task_id,
-                "success": result.success,
-                "output": result.output,
-                "error": result.error,
-                "duration_seconds": result.duration_seconds,
-            },
-        )
+        if not self._available:
+            await self.event_bus.publish(
+                "harness.task.complete",
+                {
+                    "task_id": payload.get("task_id", str(uuid.uuid4())),
+                    "success": False,
+                    "output": "",
+                    "error": f"Harness unavailable: command '{self.harness_command[0]}' not found on PATH",
+                    "duration_seconds": 0.0,
+                },
+            )
+            return
+
+        if self._shutdown_flag:
+            return
+
+        async with self._semaphore:
+            task = TaskDelegation(
+                task_id=str(uuid.uuid4()),
+                goal=payload.get("goal", ""),
+                context=payload.get("context", {}),
+                constraints=payload.get("constraints", {}),
+                success_criteria=payload.get("success_criteria", []),
+            )
+            self._active_tasks[task.task_id] = task
+            result = await self.delegate_task(task)
+            del self._active_tasks[task.task_id]
+
+            await self.event_bus.publish(
+                "harness.task.complete",
+                {
+                    "task_id": task.task_id,
+                    "success": result.success,
+                    "output": result.output,
+                    "error": result.error,
+                    "duration_seconds": result.duration_seconds,
+                },
+            )
 
     async def delegate_task(self, task: TaskDelegation) -> TaskResult:
         """Spawn the harness CLI to execute the task."""
@@ -112,13 +171,18 @@ class HarnessAdapter(ModuleInterface):
         start = time.time()
 
         try:
+            # Build environment with HARNESS_WORKSPACE safety var
+            env = os.environ.copy()
+            env["HARNESS_WORKSPACE"] = self.workspace_dir
+
             # Run the harness CLI as a subprocess
             process = await asyncio.create_subprocess_exec(
                 *self.harness_command,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=self.workdir,
+                cwd=self.workspace_dir,
+                env=env,
             )
 
             stdout, stderr = await asyncio.wait_for(
@@ -199,5 +263,7 @@ class HarnessAdapter(ModuleInterface):
                 "completed_count": self._completed_count,
                 "failed_count": self._failed_count,
                 "active_tasks": len(self._active_tasks),
+                "enabled": self.enabled,
+                "available": self._available if self._available is not None else False,
             },
         )

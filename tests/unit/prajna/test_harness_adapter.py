@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -36,7 +37,9 @@ def adapter(mock_event_bus):
         "timeout_seconds": 60,
         "workdir": "/tmp/test_harness",
     }
-    return HarnessAdapter(config, event_bus=mock_event_bus)
+    adapter = HarnessAdapter(config, event_bus=mock_event_bus)
+    adapter._available = True
+    return adapter
 
 
 @pytest.fixture
@@ -98,17 +101,23 @@ async def test_initialize_logs(adapter, caplog, mock_event_bus):
 @pytest.mark.asyncio
 async def test_start_subscribes_and_sets_healthy(adapter, mock_event_bus):
     await adapter.start()
-    mock_event_bus.subscribe.assert_called_once_with(
-        "harness.delegate", adapter._handle_delegation
-    )
+    # Should subscribe to both harness.delegate and decide.delegate
+    calls = mock_event_bus.subscribe.call_args_list
+    assert len(calls) == 2
+    events = [call[0][0] for call in calls]
+    assert "harness.delegate" in events
+    assert "decide.delegate" in events
     assert adapter._last_health_status == ModuleStatus.HEALTHY
 
 
 @pytest.mark.asyncio
 async def test_start_subscribes_to_correct_event(adapter, mock_event_bus):
     await adapter.start()
-    call_args = mock_event_bus.subscribe.call_args
-    assert call_args[0][0] == "harness.delegate"
+    calls = mock_event_bus.subscribe.call_args_list
+    # Both events should be subscribed
+    events = [call[0][0] for call in calls]
+    assert "harness.delegate" in events
+    assert "decide.delegate" in events
 
 
 @pytest.mark.asyncio
@@ -432,3 +441,197 @@ async def test_health_pulse_reflects_live_counts(mock_exec, adapter):
     pulse = adapter.health_pulse()
     assert pulse.metrics["completed_count"] == 3
     assert pulse.metrics["failed_count"] == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# D7: Availability check tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_initialize_detects_available_command(mock_event_bus):
+    config = {"harness": "claude", "command": ["claude"], "workspace_dir": "/tmp/ws"}
+    adapter = HarnessAdapter(config, event_bus=mock_event_bus)
+    with patch("sentient.prajna.frontal.harness_adapter.shutil.which") as mock_which:
+        mock_which.return_value = "/usr/bin/claude"
+        await adapter.initialize()
+    assert adapter._available is True
+
+
+@pytest.mark.asyncio
+async def test_initialize_detects_unavailable_command(mock_event_bus, caplog):
+    config = {"harness": "claude", "command": ["claude"], "workspace_dir": "/tmp/ws"}
+    adapter = HarnessAdapter(config, event_bus=mock_event_bus)
+    with caplog.at_level("WARNING"):
+        with patch("sentient.prajna.frontal.harness_adapter.shutil.which") as mock_which:
+            mock_which.return_value = None
+            await adapter.initialize()
+    assert adapter._available is False
+    assert "not found on PATH" in caplog.text
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# D7: Rate limiting tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_semaphore_limits_concurrency(mock_event_bus):
+    config = {
+        "harness": "claude",
+        "command": ["claude"],
+        "timeout_seconds": 60,
+        "workdir": "/tmp/test_harness",
+        "workspace_dir": "/tmp/ws",
+    }
+    adapter = HarnessAdapter(config, event_bus=mock_event_bus)
+    adapter._available = True
+
+    start_times: list[float] = []
+    end_times: list[float] = []
+
+    async def slow_task(task):
+        start_times.append(time.time())
+        await asyncio.sleep(0.1)
+        end_times.append(time.time())
+        return TaskResult(task_id=task.task_id, success=True, output="ok", duration_seconds=0.1)
+
+    with patch.object(adapter, "delegate_task", side_effect=slow_task):
+        payload1 = {"goal": "task1"}
+        payload2 = {"goal": "task2"}
+
+        async def run_both():
+            await adapter._handle_delegation(payload1)
+            await adapter._handle_delegation(payload2)
+
+        await run_both()
+
+    # Second task should have started after first finished
+    assert len(start_times) == 2
+    assert len(end_times) == 2
+    assert end_times[0] <= start_times[1]
+
+
+@pytest.mark.asyncio
+async def test_handle_delegation_releases_semaphore_on_error(mock_event_bus):
+    config = {
+        "harness": "claude",
+        "command": ["claude"],
+        "timeout_seconds": 60,
+        "workdir": "/tmp/test_harness",
+        "workspace_dir": "/tmp/ws",
+    }
+    adapter = HarnessAdapter(config, event_bus=mock_event_bus)
+    adapter._available = True
+
+    async def raising_task(task):
+        raise RuntimeError("boom")
+
+    with patch.object(adapter, "delegate_task", side_effect=raising_task):
+        payload = {"goal": "fail task"}
+        # The error should propagate but semaphore should still be released
+        with pytest.raises(RuntimeError):
+            await adapter._handle_delegation(payload)
+
+    # Semaphore should be released (able to acquire again)
+    async with adapter._semaphore:
+        pass  # Should not deadlock
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# D7: Safety gate tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+@patch("sentient.prajna.frontal.harness_adapter.asyncio.create_subprocess_exec")
+@pytest.mark.asyncio
+async def test_delegate_task_uses_workspace_dir_as_cwd(mock_exec, adapter, sample_task):
+    process = AsyncMock()
+    process.communicate = AsyncMock(return_value=(b"out", b""))
+    process.returncode = 0
+    mock_exec.return_value = process
+
+    # Override workspace_dir to a different path
+    adapter.workspace_dir = "/custom/workspace"
+
+    await adapter.delegate_task(sample_task)
+
+    args, kwargs = mock_exec.call_args
+    assert kwargs["cwd"] == "/custom/workspace"
+
+
+@patch("sentient.prajna.frontal.harness_adapter.asyncio.create_subprocess_exec")
+@pytest.mark.asyncio
+async def test_delegate_task_sets_harness_workspace_env(mock_exec, adapter, sample_task):
+    process = AsyncMock()
+    process.communicate = AsyncMock(return_value=(b"out", b""))
+    process.returncode = 0
+    mock_exec.return_value = process
+
+    adapter.workspace_dir = "/my/workspace"
+
+    await adapter.delegate_task(sample_task)
+
+    args, kwargs = mock_exec.call_args
+    assert "HARNESS_WORKSPACE" in kwargs["env"]
+    assert kwargs["env"]["HARNESS_WORKSPACE"] == "/my/workspace"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# D7: Graceful degradation tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_handle_delegation_returns_unavailable_when_not_on_path(adapter, mock_event_bus):
+    adapter._available = False
+    payload = {"goal": "Test unavailable"}
+
+    await adapter._handle_delegation(payload)
+
+    mock_event_bus.publish.assert_called_once()
+    call_args = mock_event_bus.publish.call_args
+    published = call_args[0][1]
+    assert published["success"] is False
+    assert "not found on PATH" in published["error"]
+
+
+@pytest.mark.asyncio
+async def test_handle_delegation_returns_disabled_when_not_enabled(adapter, mock_event_bus):
+    adapter.enabled = False
+    payload = {"goal": "Test disabled"}
+
+    await adapter._handle_delegation(payload)
+
+    mock_event_bus.publish.assert_called_once()
+    call_args = mock_event_bus.publish.call_args
+    published = call_args[0][1]
+    assert published["success"] is False
+    assert "disabled by config" in published["error"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# D7: Event subscription tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_start_subscribes_to_decide_delegate(adapter, mock_event_bus):
+    await adapter.start()
+    # Find all subscribe calls
+    subscribe_calls = mock_event_bus.subscribe.call_args_list
+    subscribed_events = [call[0][0] for call in subscribe_calls]
+    assert "harness.delegate" in subscribed_events
+    assert "decide.delegate" in subscribed_events
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# D7: Shutdown test
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_shutdown_prevents_new_delegations(adapter, mock_event_bus):
+    adapter._available = True
+
+    await adapter.shutdown()
+
+    payload = {"goal": "post-shutdown task"}
+    await adapter._handle_delegation(payload)
+
+    # Should not call delegate_task or publish result after shutdown
+    mock_event_bus.publish.assert_not_called()

@@ -57,7 +57,22 @@ The creator uses Ollama cloud with three models. Route work to the appropriate m
 - Any `git push` to `main` or `master`
 - Any `git push --force` to any branch
 - Any change to the Constitutional Core's immutability protection
-- Deleting existing code without a replacement that preserves behavior
+- Deletion of a protected file (enforced by pre-commit hook). Only the architect agent can approve such a deletion and must record the reason in the commit message.
+
+## Protected Files
+
+The following paths are protected from deletion by pre-commit hook. Only the architect agent can approve deletion, and must record the reason in the commit message.
+
+- `config/**` — all configuration files (constitutional, system, inference gateway)
+- `src/sentient/**` — all Python source code
+- `frontend/src/**` — all TypeScript/React frontend source
+- `pyproject.toml` — project dependencies
+- `README.md`, `SETUP.md` — project documentation
+- `CLAUDE.md` — AI session instructions
+- `docs/phases/**` — phase documentation (older than current phase)
+- `data/` — runtime stores and databases
+
+The pre-commit hook (`scripts/guard_critical_files.sh`) enforces this at the git level. Bypassing it requires `--no-verify` which is a RED gate violation unless explicitly authorized by the creator.
 
 ## Verification Rules
 

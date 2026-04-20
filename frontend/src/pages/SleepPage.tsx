@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Moon, RefreshCw, Clock, Zap, History, Info } from 'lucide-react';
+import { Moon, RefreshCw, Clock, Zap, History, Info, Sparkles } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';

@@ -6,12 +6,11 @@ deadlock. These tests verify that the snapshot-then-emit pattern prevents
 reentrancy deadlocks.
 """
 import asyncio
-import time
 
 import pytest
 
-from sentient.core.envelope import Envelope, Priority, SourceType, TrustLevel
-from sentient.core.event_bus import EventBus, get_event_bus, reset_event_bus
+from sentient.core.envelope import Envelope, SourceType, TrustLevel
+from sentient.core.event_bus import get_event_bus, reset_event_bus
 from sentient.thalamus.gateway import Thalamus
 
 
@@ -71,7 +70,7 @@ class TestBatchLockNoDeadlock:
         The key assertion: the call completes within timeout (no deadlock).
         Whether the batch is emitted depends on elapsed time vs min_window.
         """
-        event_bus = get_event_bus()
+        get_event_bus()  # Initialize event bus for the test
 
         # Tier 2 message: "hello" from creator → TIER_2_ELEVATED
         envelope = _make_envelope("hello")
