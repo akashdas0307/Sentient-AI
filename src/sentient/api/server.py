@@ -331,6 +331,33 @@ class APIServer:
                 "current_stage": metrics.get("current_stage", "unknown"),
             }
 
+        @self.app.post("/api/debug/sleep_cycle")
+        async def trigger_debug_sleep(request: dict | None = None):
+            """Dev-only: trigger a short sleep cycle for testing.
+
+            Only available when SENTIENT_ENV=development.
+            """
+            import os
+            if os.environ.get("SENTIENT_ENV", "production") != "development":
+                return JSONResponse(
+                    {"error": "debug endpoints only available in development mode"},
+                    status_code=403,
+                )
+            scheduler = self.lifecycle.get_module("sleep_scheduler")
+            if scheduler is None:
+                return JSONResponse({"error": "sleep scheduler not available"}, status_code=503)
+            if scheduler.current_stage.value != "awake":
+                return JSONResponse(
+                    {"error": f"already sleeping (stage={scheduler.current_stage.value})"},
+                    status_code=409,
+                )
+            body = request or {}
+            requested_hours = body.get("requested_hours", 0.1)
+            # Clamp to safe range for debugging
+            requested_hours = max(0.01, min(1.0, requested_hours))
+            await scheduler.enter_sleep(requested_hours=requested_hours)
+            return {"status": "sleep_entered", "requested_hours": requested_hours}
+
         @self.app.get("/api/persona/state")
         async def get_persona_state():
             if self.persona:
