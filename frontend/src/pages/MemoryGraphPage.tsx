@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Icon, Btn, Card, Pill, GaugeBar, StatCard } from '../components/shared';
+import { Icon, Btn, Card, Pill, GaugeBar, StatCard, PageLoader } from '../components/shared';
 import { useSentientStore } from '../store/useSentientStore';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -730,23 +730,8 @@ export function MemoryGraphPage() {
         style={{ flex: 1, position: 'relative', overflow: 'hidden', background: 'var(--background)' }}
       >
         {loading && nodes.length === 0 ? (
-          <div style={{
-            position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center',
-            color: 'var(--muted-foreground)', gap: 8,
-          }}>
-            <div style={{
-              width: 40, height: 40, borderRadius: '50%',
-              border: '4px solid var(--surface-tertiary)',
-              borderTopColor: 'var(--primary)',
-              animation: 'spin 0.8s linear infinite',
-            }} />
-            <span style={{
-              fontSize: 12, fontWeight: 700, letterSpacing: '0.15em',
-              textTransform: 'uppercase', animation: 'pulse 1.5s ease-in-out infinite',
-            }}>
-              Loading topology...
-            </span>
+          <div style={{ position: 'absolute', inset: 0 }}>
+            <PageLoader label="Loading topology..." size={40} />
           </div>
         ) : filteredNodes.length === 0 ? (
           <div style={{

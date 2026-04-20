@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Pill, Icon, GaugeBar, Sparkline } from '../components/shared';
+import { Card, Pill, Icon, GaugeBar, Sparkline, PageLoader } from '../components/shared';
 import { formatFull } from '../lib/format';
 
 interface PersonaState {
@@ -142,12 +142,7 @@ const IdentityPageContent: React.FC = () => {
   }, []);
 
   if (loading) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 16 }}>
-        <div style={{ width: 48, height: 48, border: '4px solid var(--surface-tertiary)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin-stepped 1s steps(8) infinite' }} />
-        <span className="t-label" style={{ color: 'var(--muted-foreground)', animation: 'pulse-amber 2s ease-in-out infinite' }}>Loading identity state...</span>
-      </div>
-    );
+    return <PageLoader label="Loading identity state..." size={48} />;
   }
 
   if (error || !state) {

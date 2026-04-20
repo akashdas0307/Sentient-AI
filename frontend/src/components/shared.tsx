@@ -230,6 +230,22 @@ export const Skeleton: React.FC<SkeletonProps> = ({ width = '100%', height = 16,
   <div className="shimmer" style={{ width, height, borderRadius: radius, ...style }} />
 );
 
+// ─── PageLoader ───
+interface PageLoaderProps {
+  label?: string;
+  size?: number;
+}
+
+export const PageLoader: React.FC<PageLoaderProps> = ({ label = 'Loading...', size = 40 }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 16 }}>
+    <div style={{
+      width: size, height: size, border: `${Math.max(3, size / 10)}px solid var(--surface-tertiary)`,
+      borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin-stepped 1s steps(8) infinite',
+    }} />
+    {label && <span className="t-label" style={{ color: 'var(--muted-foreground)' }}>{label}</span>}
+  </div>
+);
+
 // ─── Toast system ───
 interface ToastContextValue {
   addToast: (msg: string, type?: string) => void;

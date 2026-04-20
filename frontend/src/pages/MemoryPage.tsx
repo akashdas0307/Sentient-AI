@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Icon, Btn, Card, Pill, GaugeBar, StatCard } from '../components/shared';
+import { Icon, Btn, Card, Pill, GaugeBar, StatCard, PageLoader } from '../components/shared';
 import { useSentientStore } from '../store/useSentientStore';
 import { formatRelative, formatFull } from '../lib/format';
 
@@ -204,21 +204,7 @@ export function MemoryPage() {
         {/* ── Memory list ───────────────────────────────────────── */}
         <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
           {loading && entries.length === 0 ? (
-            <div style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center',
-              justifyContent: 'center', height: 300,
-              color: 'var(--muted-foreground)', gap: 8,
-            }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: '50%',
-                border: '3px solid var(--surface-tertiary)',
-                borderTopColor: 'var(--primary)',
-                animation: 'spin 0.8s linear infinite',
-              }} />
-              <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase' }}>
-                Scanning database...
-              </span>
-            </div>
+            <PageLoader label="Scanning database..." size={32} />
           ) : filtered.length === 0 ? (
             <div style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center',

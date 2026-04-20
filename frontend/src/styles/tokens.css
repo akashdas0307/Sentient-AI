@@ -96,3 +96,13 @@ button, a, [role="button"] { transition: all 150ms ease; }
   to { opacity: 1; transform: translateY(0); }
 }
 .page-enter { animation: fadeIn 200ms ease; }
+
+/* Responsive breakpoints */
+@media (max-width: 900px) {
+  .sidebar { width: 64px !important; }
+  .sidebar .nav-label { display: none; }
+  .sidebar .sidebar-title { display: none; }
+}
+@media (max-width: 640px) {
+  .sidebar { display: none !important; }
+}
