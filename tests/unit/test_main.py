@@ -4,7 +4,9 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+from contextlib import ExitStack
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -52,6 +54,107 @@ def minimal_inference_yaml(tmp_path: Path) -> Path:
 def config_dir(minimal_system_yaml: Path, minimal_inference_yaml: Path) -> Path:
     """Combined config directory with both YAML files."""
     return minimal_system_yaml
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
+
+# All module-class names that main.py imports at the top level and uses in
+# build_and_start().  Keeping this list in one place avoids the Python
+# static-nesting-limit error that long ``with`` chains produce.
+_MODULE_PATCH_TARGETS = [
+    "InferenceGateway",
+    "MemoryArchitecture",
+    "PersonaManager",
+    "HealthPulseNetwork",
+    "InnateResponse",
+    "Thalamus",
+    "Checkpost",
+    "QueueZone",
+    "TemporalLimbicProcessor",
+    "CognitiveCore",
+    "WorldModel",
+    "HarnessAdapter",
+    "Brainstem",
+    "SleepScheduler",
+    # Sleep sub-components instantiated by build_and_start
+    "ConsolidationEngine",
+    "ContradictionResolver",
+    "WMCalibrator",
+    "ProceduralRefiner",
+    "IdentityDriftDetector",
+    "DevelopmentalConsolidator",
+    # Decision arbiter
+    "DecisionArbiter",
+    # I/O plugins
+    "ChatInputPlugin",
+    "ChatOutputPlugin",
+]
+
+
+def _apply_module_patches(stack: ExitStack) -> tuple[dict[str, MagicMock], MagicMock]:
+    """Enter patch contexts for all module classes and return (name→mock, event_bus_mock)."""
+    mocks: dict[str, MagicMock] = {}
+    for name in _MODULE_PATCH_TARGETS:
+        m = stack.enter_context(patch(f"sentient.main.{name}"))
+        mocks[name] = m
+    event_bus_mock = stack.enter_context(patch("sentient.main.get_event_bus"))
+    return mocks, event_bus_mock
+
+
+# Mapping from patch target names to the actual .name attribute that real
+# modules use (snake_case).  Used so lifecycle._essential_modules matches
+# production code.
+_NAME_MAP = {
+    "InferenceGateway": "inference_gateway",
+    "MemoryArchitecture": "memory",
+    "PersonaManager": "persona",
+    "HealthPulseNetwork": "health_pulse_network",
+    "InnateResponse": "innate_response",
+    "Thalamus": "thalamus",
+    "Checkpost": "checkpost",
+    "QueueZone": "queue_zone",
+    "TemporalLimbicProcessor": "tlp",
+    "CognitiveCore": "cognitive_core",
+    "WorldModel": "world_model",
+    "HarnessAdapter": "harness_adapter",
+    "Brainstem": "brainstem",
+    "SleepScheduler": "sleep_scheduler",
+    "ConsolidationEngine": "consolidation_engine",
+    "ContradictionResolver": "contradiction_resolver",
+    "WMCalibrator": "wm_calibrator",
+    "ProceduralRefiner": "procedural_refiner",
+    "IdentityDriftDetector": "identity_drift_detector",
+    "DevelopmentalConsolidator": "developmental_consolidator",
+    "DecisionArbiter": "decision_arbiter",
+    "ChatInputPlugin": "chat_input",
+    "ChatOutputPlugin": "chat_output",
+}
+
+
+def _configure_default_mocks(mocks: dict[str, MagicMock]) -> None:
+    """Set .return_value on every mock and wire up async lifecycle methods."""
+    for name, m in mocks.items():
+        instance = MagicMock(name=name)
+        # LifecycleManager awaits initialize(), start(), shutdown()
+        instance.initialize = AsyncMock()
+        instance.start = AsyncMock()
+        instance.shutdown = AsyncMock()
+        # LifecycleManager reads .name as the registry key — use real module names
+        instance.name = _NAME_MAP.get(name, name)
+        # LifecycleManager sets .state and calls .set_status() on failure
+        instance.state = MagicMock()
+        instance.set_status = MagicMock()
+        m.return_value = instance
+
+    # Thalamus and Brainstem need async register_plugin
+    mocks["Thalamus"].return_value.register_plugin = AsyncMock()
+    mocks["Brainstem"].return_value.register_plugin = AsyncMock()
+
+    # Chat plugins need async register_plugin
+    mocks["ChatInputPlugin"].return_value.register_plugin = AsyncMock()
+    mocks["ChatOutputPlugin"].return_value.register_plugin = AsyncMock()
 
 
 # =============================================================================
@@ -179,22 +282,11 @@ async def test_build_and_start_registers_all_modules_with_lifecycle(config_dir: 
 
     # Create mock classes that return our mock modules
     mock_classes = {}
-    for name in [
-        "InferenceGateway", "MemoryArchitecture", "PersonaManager",
-        "HealthPulseNetwork", "InnateResponse", "Thalamus",
-        "Checkpost", "QueueZone", "TemporalLimbicProcessor",
-        "CognitiveCore", "WorldModel", "HarnessAdapter",
-        "Brainstem", "SleepScheduler",
-    ]:
+    for name in _MODULE_PATCH_TARGETS:
+        if name in ("ChatInputPlugin", "ChatOutputPlugin"):
+            continue
         mock_cls = MagicMock()
-        mock_instance = make_mock(name.lower().replace("healthpulsenetwork", "health_network")
-                                   .replace("innateresponse", "innate")
-                                   .replace("temporallimbicprocessor", "tlp")
-                                   .replace("cognitivecore", "cognitive_core")
-                                   .replace("worldmodel", "world_model")
-                                   .replace("harnessadapter", "harness_adapter")
-                                   .replace("brainscheduler", "sleep_scheduler")
-                                   .replace("sleepscheduler", "sleep"))
+        mock_instance = make_mock(name.lower())
         mock_cls.return_value = mock_instance
         mock_classes[name] = mock_cls
 
@@ -204,25 +296,19 @@ async def test_build_and_start_registers_all_modules_with_lifecycle(config_dir: 
     mock_api_server.start = AsyncMock()
     mock_api_server.shutdown = AsyncMock()
 
-    with patch.dict(os.environ, {"SENTIENT_CONFIG_DIR": str(config_dir)}), \
-         patch("sentient.main.InferenceGateway", mock_classes["InferenceGateway"]), \
-         patch("sentient.main.MemoryArchitecture", mock_classes["MemoryArchitecture"]), \
-         patch("sentient.main.PersonaManager", mock_classes["PersonaManager"]), \
-         patch("sentient.main.HealthPulseNetwork", mock_classes["HealthPulseNetwork"]), \
-         patch("sentient.main.InnateResponse", mock_classes["InnateResponse"]), \
-         patch("sentient.main.Thalamus", mock_classes["Thalamus"]), \
-         patch("sentient.main.Checkpost", mock_classes["Checkpost"]), \
-         patch("sentient.main.QueueZone", mock_classes["QueueZone"]), \
-         patch("sentient.main.TemporalLimbicProcessor", mock_classes["TemporalLimbicProcessor"]), \
-         patch("sentient.main.CognitiveCore", mock_classes["CognitiveCore"]), \
-         patch("sentient.main.WorldModel", mock_classes["WorldModel"]), \
-         patch("sentient.main.HarnessAdapter", mock_classes["HarnessAdapter"]), \
-         patch("sentient.main.Brainstem", mock_classes["Brainstem"]), \
-         patch("sentient.main.SleepScheduler", mock_classes["SleepScheduler"]), \
-         patch("sentient.main.ChatInputPlugin") as mock_chat_input, \
-         patch("sentient.main.ChatOutputPlugin") as mock_chat_output, \
-         patch("sentient.api.server.APIServer", return_value=mock_api_server), \
-         patch("sentient.main.get_event_bus"):
+    # Reload BEFORE patching so reload doesn't overwrite our mocks
+    from importlib import reload
+    import sentient.main
+    reload(sentient.main)
+
+    with ExitStack() as stack:
+        stack.enter_context(patch.dict(os.environ, {"SENTIENT_CONFIG_DIR": str(config_dir)}))
+        for name, mock_cls in mock_classes.items():
+            stack.enter_context(patch(f"sentient.main.{name}", mock_cls))
+        mock_chat_input = stack.enter_context(patch("sentient.main.ChatInputPlugin"))
+        mock_chat_output = stack.enter_context(patch("sentient.main.ChatOutputPlugin"))
+        stack.enter_context(patch("sentient.api.server.APIServer", return_value=mock_api_server))
+        mock_get_event_bus = stack.enter_context(patch("sentient.main.get_event_bus"))
 
         mock_chat_input_instance = MagicMock()
         mock_chat_input_instance.register_plugin = AsyncMock()
@@ -241,9 +327,10 @@ async def test_build_and_start_registers_all_modules_with_lifecycle(config_dir: 
         mock_brainstem_instance.register_plugin = AsyncMock()
         mock_classes["Brainstem"].return_value = mock_brainstem_instance
 
-        from importlib import reload
-        import sentient.main
-        reload(sentient.main)
+        # Configure event bus mock with async publish
+        mock_event_bus = MagicMock()
+        mock_event_bus.publish = AsyncMock()
+        mock_get_event_bus.return_value = mock_event_bus
 
         lifecycle, api_server = await sentient.main.build_and_start()
 
@@ -260,7 +347,8 @@ async def test_build_and_start_registers_all_modules_with_lifecycle(config_dir: 
 )
 async def test_build_and_start_creates_data_directory(config_dir: Path):
     """build_and_start creates the data directory and logs subdirectory."""
-    data_dir = config_dir / "data"
+    # config_dir is tmp_path / "config"; the YAML sets data_dir to tmp_path / "data"
+    data_dir = config_dir.parent / "data"
 
     mock_api_server = MagicMock()
     mock_api_server.host = "127.0.0.1"
@@ -268,52 +356,20 @@ async def test_build_and_start_creates_data_directory(config_dir: Path):
     mock_api_server.start = AsyncMock()
     mock_api_server.shutdown = AsyncMock()
 
-    with patch.dict(os.environ, {"SENTIENT_CONFIG_DIR": str(config_dir)}), \
-         patch("sentient.main.InferenceGateway") as mock_ig, \
-         patch("sentient.main.MemoryArchitecture") as mock_mem, \
-         patch("sentient.main.PersonaManager") as mock_persona, \
-         patch("sentient.main.HealthPulseNetwork") as mock_hpn, \
-         patch("sentient.main.InnateResponse") as mock_ir, \
-         patch("sentient.main.Thalamus") as mock_thal, \
-         patch("sentient.main.Checkpost") as mock_cp, \
-         patch("sentient.main.QueueZone") as mock_qz, \
-         patch("sentient.main.TemporalLimbicProcessor") as mock_tlp, \
-         patch("sentient.main.CognitiveCore") as mock_cc, \
-         patch("sentient.main.WorldModel") as mock_wm, \
-         patch("sentient.main.HarnessAdapter") as mock_ha, \
-         patch("sentient.main.Brainstem") as mock_bs, \
-         patch("sentient.main.SleepScheduler") as mock_ss, \
-         patch("sentient.main.ChatInputPlugin") as mock_ci, \
-         patch("sentient.main.ChatOutputPlugin") as mock_co, \
-         patch("sentient.api.server.APIServer", return_value=mock_api_server), \
-         patch("sentient.main.get_event_bus"):
+    # Reload BEFORE patching so reload doesn't overwrite our mocks
+    from importlib import reload
+    import sentient.main
+    reload(sentient.main)
 
-        mock_ig.return_value = MagicMock(name="inference_gateway")
-        mock_mem.return_value = MagicMock(name="memory")
-        mock_persona.return_value = MagicMock(name="persona")
-        mock_hpn.return_value = MagicMock(name="health_network")
-        mock_ir.return_value = MagicMock(name="innate")
-        mock_thal.return_value = MagicMock(name="thalamus")
-        mock_cp.return_value = MagicMock(name="checkpost")
-        mock_qz.return_value = MagicMock(name="queue_zone")
-        mock_tlp.return_value = MagicMock(name="tlp")
-        mock_cc.return_value = MagicMock(name="cognitive_core")
-        mock_wm.return_value = MagicMock(name="world_model")
-        mock_ha.return_value = MagicMock(name="harness")
-        mock_bs.return_value = MagicMock(name="brainstem")
-        mock_ss.return_value = MagicMock(name="sleep")
-
-        mock_ci_instance = MagicMock()
-        mock_ci_instance.register_plugin = AsyncMock()
-        mock_ci.return_value = mock_ci_instance
-
-        mock_co_instance = MagicMock()
-        mock_co_instance.register_plugin = AsyncMock()
-        mock_co.return_value = mock_co_instance
-
-        from importlib import reload
-        import sentient.main
-        reload(sentient.main)
+    with ExitStack() as stack:
+        stack.enter_context(patch.dict(os.environ, {"SENTIENT_CONFIG_DIR": str(config_dir)}))
+        mocks, mock_get_event_bus = _apply_module_patches(stack)
+        _configure_default_mocks(mocks)
+        stack.enter_context(patch("sentient.api.server.APIServer", return_value=mock_api_server))
+        # Configure event bus mock with async publish
+        mock_event_bus = MagicMock()
+        mock_event_bus.publish = AsyncMock()
+        mock_get_event_bus.return_value = mock_event_bus
 
         await sentient.main.build_and_start()
 
@@ -334,65 +390,27 @@ async def test_build_and_start_registers_essential_modules(config_dir: Path):
     mock_api_server.start = AsyncMock()
     mock_api_server.shutdown = AsyncMock()
 
-    with patch.dict(os.environ, {"SENTIENT_CONFIG_DIR": str(config_dir)}), \
-         patch("sentient.main.InferenceGateway") as mock_ig, \
-         patch("sentient.main.MemoryArchitecture") as mock_mem, \
-         patch("sentient.main.PersonaManager") as mock_persona, \
-         patch("sentient.main.HealthPulseNetwork") as mock_hpn, \
-         patch("sentient.main.InnateResponse") as mock_ir, \
-         patch("sentient.main.Thalamus") as mock_thal, \
-         patch("sentient.main.Checkpost") as mock_cp, \
-         patch("sentient.main.QueueZone") as mock_qz, \
-         patch("sentient.main.TemporalLimbicProcessor") as mock_tlp, \
-         patch("sentient.main.CognitiveCore") as mock_cc, \
-         patch("sentient.main.WorldModel") as mock_wm, \
-         patch("sentient.main.HarnessAdapter") as mock_ha, \
-         patch("sentient.main.Brainstem") as mock_bs, \
-         patch("sentient.main.SleepScheduler") as mock_ss, \
-         patch("sentient.main.ChatInputPlugin") as mock_ci, \
-         patch("sentient.main.ChatOutputPlugin") as mock_co, \
-         patch("sentient.api.server.APIServer", return_value=mock_api_server), \
-         patch("sentient.main.get_event_bus"):
+    # Reload BEFORE patching so reload doesn't overwrite our mocks
+    from importlib import reload
+    import sentient.main
+    reload(sentient.main)
 
-        # Create persistent module instances to track essential flag
-        module_instances = {}
-        for name in ["ig", "mem", "persona", "hpn", "ir", "thal", "cp", "qz", "tlp", "cc", "wm", "ha", "bs", "ss"]:
-            m = MagicMock(name=name)
-            module_instances[name] = m
-
-        mock_ig.return_value = module_instances["ig"]
-        mock_mem.return_value = module_instances["mem"]
-        mock_persona.return_value = module_instances["persona"]
-        mock_hpn.return_value = module_instances["hpn"]
-        mock_ir.return_value = module_instances["ir"]
-        mock_thal.return_value = module_instances["thal"]
-        mock_cp.return_value = module_instances["cp"]
-        mock_qz.return_value = module_instances["qz"]
-        mock_tlp.return_value = module_instances["tlp"]
-        mock_cc.return_value = module_instances["cc"]
-        mock_wm.return_value = module_instances["wm"]
-        mock_ha.return_value = module_instances["ha"]
-        mock_bs.return_value = module_instances["bs"]
-        mock_ss.return_value = module_instances["ss"]
-
-        mock_ci_instance = MagicMock()
-        mock_ci_instance.register_plugin = AsyncMock()
-        mock_ci.return_value = mock_ci_instance
-
-        mock_co_instance = MagicMock()
-        mock_co_instance.register_plugin = AsyncMock()
-        mock_co.return_value = mock_co_instance
-
-        from importlib import reload
-        import sentient.main
-        reload(sentient.main)
+    with ExitStack() as stack:
+        stack.enter_context(patch.dict(os.environ, {"SENTIENT_CONFIG_DIR": str(config_dir)}))
+        mocks, mock_get_event_bus = _apply_module_patches(stack)
+        _configure_default_mocks(mocks)
+        stack.enter_context(patch("sentient.api.server.APIServer", return_value=mock_api_server))
+        # Configure event bus mock with async publish
+        mock_event_bus = MagicMock()
+        mock_event_bus.publish = AsyncMock()
+        mock_get_event_bus.return_value = mock_event_bus
 
         lifecycle, _ = await sentient.main.build_and_start()
 
-        # Verify essential modules are marked
-        for module in ["InferenceGateway", "MemoryArchitecture", "PersonaManager",
-                       "HealthPulseNetwork", "InnateResponse", "SleepScheduler"]:
-            assert module.lower() in lifecycle._essential_modules
+        # Verify essential modules are marked using actual module names
+        for name in ["inference_gateway", "memory", "persona",
+                      "health_pulse_network", "innate_response", "sleep_scheduler"]:
+            assert name in lifecycle._essential_modules
 
 
 @pytest.mark.asyncio
@@ -408,52 +426,20 @@ async def test_build_and_start_calls_lifecycle_startup(config_dir: Path):
     mock_api_server.start = AsyncMock()
     mock_api_server.shutdown = AsyncMock()
 
-    with patch.dict(os.environ, {"SENTIENT_CONFIG_DIR": str(config_dir)}), \
-         patch("sentient.main.InferenceGateway") as mock_ig, \
-         patch("sentient.main.MemoryArchitecture") as mock_mem, \
-         patch("sentient.main.PersonaManager") as mock_persona, \
-         patch("sentient.main.HealthPulseNetwork") as mock_hpn, \
-         patch("sentient.main.InnateResponse") as mock_ir, \
-         patch("sentient.main.Thalamus") as mock_thal, \
-         patch("sentient.main.Checkpost") as mock_cp, \
-         patch("sentient.main.QueueZone") as mock_qz, \
-         patch("sentient.main.TemporalLimbicProcessor") as mock_tlp, \
-         patch("sentient.main.CognitiveCore") as mock_cc, \
-         patch("sentient.main.WorldModel") as mock_wm, \
-         patch("sentient.main.HarnessAdapter") as mock_ha, \
-         patch("sentient.main.Brainstem") as mock_bs, \
-         patch("sentient.main.SleepScheduler") as mock_ss, \
-         patch("sentient.main.ChatInputPlugin") as mock_ci, \
-         patch("sentient.main.ChatOutputPlugin") as mock_co, \
-         patch("sentient.api.server.APIServer", return_value=mock_api_server), \
-         patch("sentient.main.get_event_bus"):
+    # Reload BEFORE patching so reload doesn't overwrite our mocks
+    from importlib import reload
+    import sentient.main
+    reload(sentient.main)
 
-        mock_ig.return_value = MagicMock(name="ig")
-        mock_mem.return_value = MagicMock(name="mem")
-        mock_persona.return_value = MagicMock(name="persona")
-        mock_hpn.return_value = MagicMock(name="hpn")
-        mock_ir.return_value = MagicMock(name="ir")
-        mock_thal.return_value = MagicMock(name="thal")
-        mock_cp.return_value = MagicMock(name="cp")
-        mock_qz.return_value = MagicMock(name="qz")
-        mock_tlp.return_value = MagicMock(name="tlp")
-        mock_cc.return_value = MagicMock(name="cc")
-        mock_wm.return_value = MagicMock(name="wm")
-        mock_ha.return_value = MagicMock(name="ha")
-        mock_bs.return_value = MagicMock(name="bs")
-        mock_ss.return_value = MagicMock(name="ss")
-
-        mock_ci_instance = MagicMock()
-        mock_ci_instance.register_plugin = AsyncMock()
-        mock_ci.return_value = mock_ci_instance
-
-        mock_co_instance = MagicMock()
-        mock_co_instance.register_plugin = AsyncMock()
-        mock_co.return_value = mock_co_instance
-
-        from importlib import reload
-        import sentient.main
-        reload(sentient.main)
+    with ExitStack() as stack:
+        stack.enter_context(patch.dict(os.environ, {"SENTIENT_CONFIG_DIR": str(config_dir)}))
+        mocks, mock_get_event_bus = _apply_module_patches(stack)
+        _configure_default_mocks(mocks)
+        stack.enter_context(patch("sentient.api.server.APIServer", return_value=mock_api_server))
+        # Configure event bus mock with async publish
+        mock_event_bus = MagicMock()
+        mock_event_bus.publish = AsyncMock()
+        mock_get_event_bus.return_value = mock_event_bus
 
         lifecycle, _ = await sentient.main.build_and_start()
 
@@ -479,40 +465,39 @@ async def test_run_forever_sets_up_signal_handlers(config_dir: Path):
     mock_api_server.start = AsyncMock()
     mock_api_server.shutdown = AsyncMock()
 
+    # Reload BEFORE patching so reload doesn't overwrite our mocks
+    from importlib import reload
+    import sentient.main
+    reload(sentient.main)
+
     with patch.dict(os.environ, {"SENTIENT_CONFIG_DIR": str(config_dir)}), \
          patch("sentient.main.build_and_start") as mock_bas, \
-         patch("asyncio.get_event_loop") as mock_loop:
+         patch("sentient.main.asyncio.get_event_loop") as mock_get_loop:
 
         mock_lifecycle = MagicMock()
         mock_lifecycle.is_running.return_value = False
+        mock_lifecycle.shutdown = AsyncMock()
         mock_bas.return_value = (mock_lifecycle, mock_api_server)
 
+        # Capture signal handlers registered by run_forever so we can trigger them
+        registered_handlers: dict[int, Any] = {}
         mock_loop_instance = MagicMock()
-        mock_loop.return_value = mock_loop_instance
-
-        shutdown_event = asyncio.Event()
-
-        def set_shutdown():
-            shutdown_event.set()
-
+        mock_get_loop.return_value = mock_loop_instance
         mock_loop_instance.add_signal_handler = MagicMock(
-            side_effect=lambda sig, handler: set_shutdown() if sig in (signal.SIGINT, signal.SIGTERM) else None
+            side_effect=lambda sig, handler: registered_handlers.update({sig: handler})
         )
 
-        # Make wait return immediately after a short delay to avoid blocking
-        async def wait_with_timeout():
-            await asyncio.sleep(0.01)
-            shutdown_event.set()
+        async def trigger_shutdown_soon():
+            """Fire the captured signal handler shortly after run_forever starts."""
+            await asyncio.sleep(0.05)
+            # Call the handler that run_forever registered (sets its internal shutdown_event)
+            for handler in registered_handlers.values():
+                handler()
 
-        mock_loop_instance.wait = wait_with_timeout()
-        mock_lifecycle.shutdown = AsyncMock()
-        mock_api_server.shutdown = AsyncMock()
+        run_forever_task = asyncio.create_task(sentient.main.run_forever())
+        trigger_task = asyncio.create_task(trigger_shutdown_soon())
 
-        from importlib import reload
-        import sentient.main
-        reload(sentient.main)
-
-        await asyncio.wait_for(sentient.main.run_forever(), timeout=1.0)
+        await asyncio.wait_for(asyncio.gather(run_forever_task, trigger_task), timeout=2.0)
 
         # Verify signal handlers were registered for both signals
         calls = mock_loop_instance.add_signal_handler.call_args_list
@@ -534,38 +519,42 @@ async def test_run_forever_shuts_down_on_signal(config_dir: Path):
     mock_api_server.start = AsyncMock()
     mock_api_server.shutdown = AsyncMock()
 
+    # Reload BEFORE patching so reload doesn't overwrite our mocks
+    from importlib import reload
+    import sentient.main
+    reload(sentient.main)
+
     with patch.dict(os.environ, {"SENTIENT_CONFIG_DIR": str(config_dir)}), \
-         patch("sentient.main.build_and_start") as mock_bas:
+         patch("sentient.main.build_and_start") as mock_bas, \
+         patch("sentient.main.asyncio.get_event_loop") as mock_get_loop:
 
         mock_lifecycle = MagicMock()
         mock_lifecycle.is_running.return_value = False
         mock_lifecycle.shutdown = AsyncMock()
         mock_bas.return_value = (mock_lifecycle, mock_api_server)
 
-        from importlib import reload
-        import sentient.main
-        reload(sentient.main)
+        # Capture signal handlers registered by run_forever so we can trigger them
+        registered_handlers: dict[int, Any] = {}
+        mock_loop_instance = MagicMock()
+        mock_get_loop.return_value = mock_loop_instance
+        mock_loop_instance.add_signal_handler = MagicMock(
+            side_effect=lambda sig, handler: registered_handlers.update({sig: handler})
+        )
 
-        # Create a signal-like event to trigger shutdown
-        shutdown_called = False
+        async def trigger_shutdown_soon():
+            """Fire the captured signal handler shortly after run_forever starts."""
+            await asyncio.sleep(0.05)
+            for handler in registered_handlers.values():
+                handler()
 
-        async def mock_wait():
-            nonlocal shutdown_called
-            # Simulate shutdown signal after a tick
-            await asyncio.sleep(0.01)
-            shutdown_called = True
+        run_forever_task = asyncio.create_task(sentient.main.run_forever())
+        trigger_task = asyncio.create_task(trigger_shutdown_soon())
 
-        with patch.object(sentient.main.asyncio, 'get_event_loop') as mock_loop:
-            mock_loop_instance = MagicMock()
-            mock_loop.return_value = mock_loop_instance
-            mock_loop_instance.add_signal_handler = MagicMock()
-            mock_loop_instance.wait = mock_wait
+        await asyncio.wait_for(asyncio.gather(run_forever_task, trigger_task), timeout=2.0)
 
-            await asyncio.wait_for(sentient.main.run_forever(), timeout=1.0)
-
-            # After shutdown_event is set and run_forever completes,
-            # both shutdown methods should have been called
-            # (Since we mocked build_and_start, this verifies the shutdown path)
+        # After shutdown signal fires, both shutdown methods should have been called
+        mock_api_server.shutdown.assert_awaited_once()
+        mock_lifecycle.shutdown.assert_awaited_once()
 
 
 # =============================================================================

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -100,9 +101,9 @@ async def test_event_bus_publish_broadcasts_to_ws_client(server, real_event_bus)
     # Give the async handler time to run
     await asyncio.sleep(0.05)
 
-    # Client should receive the event
-    mock_ws.send_json.assert_called_once()
-    data = mock_ws.send_json.call_args[0][0]
+    # Client should receive the event (server uses send_text, not send_json)
+    mock_ws.send_text.assert_called_once()
+    data = json.loads(mock_ws.send_text.call_args[0][0])
     assert data["type"] == "event"
     assert data["event_name"] == "cognitive.cycle.complete"
     assert data["turn_id"] == "test-123"
@@ -131,8 +132,8 @@ async def test_multiple_events_all_broadcast_to_ws_client(server, real_event_bus
     # Give handlers time to complete
     await asyncio.sleep(0.1)
 
-    assert mock_ws.send_json.call_count == len(events_to_send)
-    received_names = [call[0][0]["event_name"] for call in mock_ws.send_json.call_args_list]
+    assert mock_ws.send_text.call_count == len(events_to_send)
+    received_names = [json.loads(call[0][0])["event_name"] for call in mock_ws.send_text.call_args_list]
     for event_type, _ in events_to_send:
         assert event_type in received_names
 
