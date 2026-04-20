@@ -200,8 +200,8 @@ Confirmed: Sending a chat message causes:
 | BUG-2 | Low | `retrieve_semantic()` | Queries dedicated `semantic_memory` table which is empty until consolidation. Fixed: falls back to `retrieve(memory_types=[SEMANTIC])` on main table. | **FIXED** |
 | BUG-3 | Low | `retrieve_procedural()` | Same as BUG-2 for `procedural_memory` table. Fixed: falls back to `retrieve(memory_types=[PROCEDURAL])` on main table. | **FIXED** |
 | BUG-4 | Medium | `retrieve()` `memory_types` filter | Parameter accepted but never applied in SQL queries — both FTS and ChromaDB paths lacked `WHERE memory_type IN (...)` clause. Fixed: added filter to FTS query and ChromaDB post-filter. | **FIXED** |
-| BUG-5 | Medium | `InferenceGateway._try_endpoint()` | All Ollama cloud models return response in `reasoning_content` field, not `content`. Gateway only reads `content`, so it receives empty text. Needs `reasoning_content` fallback. | **YELLOW GATE** |
-| CONCERN-1 | Medium | Inference Gateway | `glm-5.1:cloud` health_score 0.0 with 0/3 successes — root cause is BUG-5 (empty content) combined with possible timeout/connection failures during initial testing. | **Investigated** |
+| BUG-5 | Medium | `InferenceGateway._try_endpoint()` | All Ollama cloud models return response in `reasoning_content` field, not `content`. Gateway only reads `content`, so it receives empty text. Fixed: `_get_text()` helper prefers `content`, falls back to `reasoning_content`. Applied to both primary path and retry block. | **FIXED** |
+| CONCERN-1 | Medium | Inference Gateway | `glm-5.1:cloud` health_score 0.0 with 0/3 successes — root cause was BUG-5 (empty content field). Now resolved by `_get_text()` fallback. | **Resolved** |
 | CONCERN-2 | Low | Memory Graph | 87 nodes but 0 links — link creation not implemented in MVS (links created during sleep consolidation). | **By design** |
 
 ---
@@ -227,7 +227,7 @@ Fix: inference_gateway.py:295
 
 Models that return `content` normally (gemma4, gemini-3-flash-preview) continue working unchanged. Thinking models (glm-5.1, kimi-k2.5, minimax-m2.7) now get their output from `reasoning_content`.
 
-This is a YELLOW gate change (affects inference_gateway.py interface behavior).
+This was a YELLOW gate change (affects inference_gateway.py interface behavior). Fixed in commit `0ab48f6` — `_get_text()` helper added with debug logging, applied to both primary path and retry block.
 
 ### How Memory Gets Fetched to Context
 
@@ -277,10 +277,10 @@ Dedicated tables:
 | Health Pulse | 1 | 1 | 0 | 0 | — |
 | WebSocket | 1 | 1 | 0 | 0 | — |
 | Chat Pipeline | 1 | 1 | 0 | 0 | — |
-| Inference Gateway | 1 | 1 | 0 | 0 | BUG-5 identified |
+| Inference Gateway | 1 | 1 | 0 | 0 | BUG-5 fixed |
 | Module Deps | 1 | 1 | 0 | 0 | — |
 | Memory Fetching | 3 | 2 | 0 | 1 (on-demand not supported) | — |
-| **Total** | **35** | **32** | **0** | **3** | 4 fixed, 1 YELLOW gate |
+| **Total** | **35** | **32** | **0** | **3** | 5 fixed |
 
 ---
 
@@ -310,22 +310,24 @@ Dedicated tables:
 - ChromaDB path: Added post-filter check that skips results whose `memory_type` metadata doesn't match the filter
 - Both paths now correctly filter by memory type
 
-### BUG-5: Inference Gateway `reasoning_content` fallback (MEDIUM — YELLOW GATE)
+### BUG-5: Inference Gateway `reasoning_content` fallback (MEDIUM — FIXED)
 
-**File**: `src/sentient/core/inference_gateway.py` (line 295)
+**Files changed**: `src/sentient/core/inference_gateway.py`, `tests/unit/core/test_inference_gateway.py`
 
 **Root cause**: All Ollama cloud thinking models (glm-5.1, minimax-m2.7, kimi-k2.5) return output in `reasoning_content` field instead of `content`. The gateway only reads `content`, so it gets an empty string.
 
-**Recommended fix** (requires consensus):
+**Fix applied** (commit `0ab48f6`):
+- Added `_get_text(message)` static method that prefers `content` and falls back to `reasoning_content`
+- Debug log added when `reasoning_content` is used as primary source
+- Applied to both primary inference path (line 306) and retry block (line 355)
+- 3 regression tests: fallback, content preference, missing attribute
+
 ```python
-# Current (line 295):
-text = response.choices[0].message.content or ""
-
-# Proposed:
-msg = response.choices[0].message
-raw = msg.content or ""
-reasoning = getattr(msg, 'reasoning_content', None) or ""
-text = raw if raw else reasoning
+@staticmethod
+def _get_text(message: Any) -> str:
+    raw = message.content or ""
+    reasoning = getattr(message, 'reasoning_content', None) or ""
+    if not raw and reasoning:
+        logger.debug("Using reasoning_content for model response (content was empty)")
+    return raw if raw else reasoning
 ```
-
-**Status**: YELLOW gate — changes `inference_gateway.py` interface behavior. Needs CCG consensus before applying.
