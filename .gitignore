@@ -52,6 +52,10 @@ frontend/dist/
 .omc/
 .playwright-mcp/
 .omx/
+.agent-state/
+.omc.backup-*/
+MEMORY.md.backup-*
+.clawhip/
 
 # Screenshots (runtime artifacts)
 modules-page*.png
