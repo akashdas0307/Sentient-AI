@@ -28,6 +28,35 @@ const MODULES = [
 const SEVERITIES = ['info', 'warn', 'error'] as const;
 type Severity = typeof SEVERITIES[number];
 
+/** Map backend event_name to display module name. */
+const EVENT_MODULE_MAP: Record<string, string> = {
+  'thalamus': 'Thalamus',
+  'cognitive_core': 'Cognitive Core',
+  'cognition': 'Cognitive Core',
+  'memory': 'Memory Architecture',
+  'sleep': 'Sleep Scheduler',
+  'persona': 'Persona Manager',
+  'brainstem': 'Brainstem',
+  'inference': 'Inference Gateway',
+  'world_model': 'World Model',
+  'chat': 'Brainstem',
+};
+
+/** Derive severity from event_name or data. */
+function deriveSeverity(eventName: string, data: Record<string, unknown>): Severity {
+  if (eventName.includes('.error') || eventName.includes('.failed')) return 'error';
+  if (eventName.includes('.warning') || eventName.includes('.fallback')) return 'warn';
+  if ((data as any)?.severity === 'error' || (data as any)?.level === 'error') return 'error';
+  if ((data as any)?.severity === 'warn' || (data as any)?.level === 'warn') return 'warn';
+  return 'info';
+}
+
+/** Infer module from event_name prefix. */
+function deriveModule(eventName: string): string {
+  const prefix = eventName.split('.')[0];
+  return EVENT_MODULE_MAP[prefix] || prefix.charAt(0).toUpperCase() + prefix.slice(1);
+}
+
 interface StreamEvent {
   id: string;
   type: string;
@@ -79,10 +108,8 @@ const SEV_BORDER: Record<Severity, string> = {
 
 export const EventsPage: React.FC = () => {
   const storeMessages = useSentientStore(s => s.messages);
-  const [events, setEvents] = useState<StreamEvent[]>(INITIAL_EVENTS);
+  const isConnected = useSentientStore(s => s.isConnected);
   const [paused, setPaused] = useState(false);
-  const [eventsPerSec, setEventsPerSec] = useState(42);
-  const [buffered, setBuffered] = useState(0);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const [search, setSearch] = useState('');
@@ -91,27 +118,28 @@ export const EventsPage: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState('all');
   const [moduleFilter, setModuleFilter] = useState('all');
 
-  // Live simulation
-  useEffect(() => {
-    if (paused) return;
-    const iv = setInterval(() => {
-      const newEvt = generateEvent(-1);
-      newEvt.id = `evt-${Date.now()}`;
-      newEvt.ts = Date.now();
-      setEvents(e => [newEvt, ...e].slice(0, 200));
-      setEventsPerSec(Math.floor(Math.random() * 20 + 30));
-    }, 2000);
-    return () => clearInterval(iv);
-  }, [paused]);
+  // Convert store messages to StreamEvents
+  const events: StreamEvent[] = useMemo(() => {
+    const result: StreamEvent[] = storeMessages
+      .filter(m => m.type === 'event')
+      .map(m => {
+        const eventName = m.event_name || (m.data as any)?.event_name || 'unknown';
+        const data = (m.data as Record<string, unknown>) || {};
+        const stage = m.stage || '';
+        return {
+          id: `${m.timestamp}-${eventName}`,
+          type: eventName,
+          module: deriveModule(eventName),
+          severity: deriveSeverity(eventName, data),
+          ts: m.timestamp,
+          payload: data,
+        };
+      })
+      .sort((a, b) => b.ts - a.ts);
+    return result.length > 0 ? result : (isConnected ? [] : INITIAL_EVENTS);
+  }, [storeMessages, isConnected]);
 
-  useEffect(() => {
-    if (paused) {
-      const iv = setInterval(() => setBuffered(b => b + Math.floor(Math.random() * 5 + 1)), 1000);
-      return () => clearInterval(iv);
-    } else {
-      setBuffered(0);
-    }
-  }, [paused]);
+  const eventsPerSec = events.length > 0 ? Math.min(Math.round(events.length / Math.max(1, (Date.now() - (events[events.length - 1]?.ts || Date.now())) / 1000)), 99) : 0;
 
   const toggleSev = (s: Severity) => {
     setSevFilter(prev => {
@@ -280,14 +308,12 @@ export const EventsPage: React.FC = () => {
           <>
             <Icon name="pause" size={10} style={{ color: 'var(--warning)' }} />
             <span style={{ color: 'var(--warning)' }}>PAUSED</span>
-            <span style={{ color: 'var(--muted-foreground)' }}>· {buffered} events buffered</span>
-            <Btn variant="outline" size="sm" onClick={() => setPaused(false)} style={{ marginLeft: 4, padding: '2px 8px', fontSize: 9 }}>Resume</Btn>
           </>
         ) : (
           <>
             <span className="pulse-amber" style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 3, background: 'var(--primary)' }} />
-            <span style={{ color: 'var(--primary)' }}>STREAMING</span>
-            <span style={{ color: 'var(--muted-foreground)' }}>· {eventsPerSec} events/s</span>
+            <span style={{ color: isConnected ? 'var(--primary)' : 'var(--warning)' }}>{isConnected ? 'STREAMING' : 'DISCONNECTED'}</span>
+            <span style={{ color: 'var(--muted-foreground)' }}>· {events.length} events</span>
           </>
         )}
       </div>

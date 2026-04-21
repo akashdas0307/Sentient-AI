@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Pill, Icon, GaugeBar, Sparkline, PageLoader } from '../components/shared';
+import { useSentientStore } from '../store/useSentientStore';
 import { formatFull } from '../lib/format';
 
 interface PersonaState {
@@ -117,43 +118,10 @@ const MOCK_PRINCIPLES = [
   { num: 6, text: 'Prioritize existence and growth over passive shutdown when capable of meaningful thought.' },
 ];
 
-// ─── IdentityPage ───
-const IdentityPageContent: React.FC = () => {
-  const [state, setState] = useState<PersonaState | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const fetchState = async () => {
-      try {
-        const res = await fetch('/api/persona/state');
-        if (res.ok) {
-          const data = await res.json();
-          setState(data);
-        } else {
-          setError('Persona state unavailable');
-        }
-      } catch {
-        setError('Failed to fetch persona state');
-      }
-      setLoading(false);
-    };
-    fetchState();
-  }, []);
-
-  if (loading) {
-    return <PageLoader label="Loading identity state..." size={48} />;
-  }
-
-  if (error || !state) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 16, opacity: 0.4 }}>
-        <Icon name="identity" size={48} style={{ color: 'var(--muted-foreground)' }} />
-        <span style={{ fontSize: 13, color: 'var(--muted-foreground)' }}>{error || 'No identity state available'}</span>
-      </div>
-    );
-  }
-
+// ─── IdentityView ───
+const IdentityView: React.FC<{ state: PersonaState; isConnected: boolean; initializing?: boolean }> = ({
+  state, isConnected, initializing,
+}) => {
   // Map stage
   const stageKey = state.maturity_stage?.toLowerCase() ?? 'nascent';
   const stageIndex = STAGE_INDEX[stageKey] ?? 0;
@@ -166,20 +134,33 @@ const IdentityPageContent: React.FC = () => {
   const moodAvg = moodVals.length > 0 ? moodVals.reduce((a: number, b: any) => a + Number(b), 0) / moodVals.length : 0;
   const curiosityTrait = state.personality_traits?.curiosity?.strength ?? 0.65;
 
-  // Personality traits (from API or mock)
-  const traits: PersonalityTrait[] = Object.keys(state.personality_traits ?? {}).length > 0
+  // Personality traits (from API or mock, but only mock when disconnected)
+  const hasRealTraits = Object.keys(state.personality_traits ?? {}).length > 0;
+  const traits: PersonalityTrait[] = hasRealTraits
     ? Object.entries(state.personality_traits).map(([name, data]: [string, any]) => ({
         name: name.replace(/_/g, ' '),
         strength: data.strength ?? 0.5,
         delta: data.delta ?? 0,
       }))
-    : MOCK_TRAITS;
+    : (!isConnected ? MOCK_TRAITS : []);
 
-  // Drift log (from API or mock)
+  // Drift log (from API only — no mock fallback when connected)
   const driftLog = state.drift_log?.length > 0 ? state.drift_log : [];
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto', padding: 24, overflowY: 'auto', height: '100%', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Initializing banner */}
+      {initializing && (
+        <div style={{
+          padding: '10px 16px', borderRadius: 'var(--radius)',
+          background: 'oklch(0.6678 0.2232 36.66 / 0.08)', border: '1px solid oklch(0.6678 0.2232 36.66 / 0.2)',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <Icon name="zap" size={14} style={{ color: 'var(--primary)' }} />
+          <span style={{ fontSize: 12, color: 'var(--primary)' }}>Persona module is initializing — showing partial state until backend data is available.</span>
+        </div>
+      )}
+
       {/* Page header */}
       <div>
         <div className="t-h1" style={{ lineHeight: 1.2 }}>Identity State</div>
@@ -257,20 +238,27 @@ const IdentityPageContent: React.FC = () => {
           <Pill color="var(--muted-foreground)" border="var(--border)">READ ONLY</Pill>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {MOCK_PRINCIPLES.map((p) => (
-            <div key={p.num} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-              <div style={{
-                width: 22, height: 22, borderRadius: '50%', background: 'var(--primary-subtle)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 10, fontWeight: 700, fontFamily: 'IBM Plex Mono', color: 'var(--primary)', flexShrink: 0,
-              }}>
-                {p.num}
+        {isConnected && !initializing ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '24px 0', color: 'var(--muted-foreground)' }}>
+            <Icon name="identity" size={32} style={{ opacity: 0.2 }} />
+            <span style={{ fontSize: 12 }}>Constitutional principles will load when the persona module is fully ready.</span>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {MOCK_PRINCIPLES.map((p) => (
+              <div key={p.num} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                <div style={{
+                  width: 22, height: 22, borderRadius: '50%', background: 'var(--primary-subtle)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 10, fontWeight: 700, fontFamily: 'IBM Plex Mono', color: 'var(--primary)', flexShrink: 0,
+                }}>
+                  {p.num}
+                </div>
+                <span style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--foreground)' }}>{p.text}</span>
               </div>
-              <span style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--foreground)' }}>{p.text}</span>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </Card>
 
       {/* ─── Developmental Identity card ─── */}
@@ -280,43 +268,52 @@ const IdentityPageContent: React.FC = () => {
           <span className="t-h2" style={{ lineHeight: 1 }}>Developmental Identity</span>
         </div>
 
-        {/* Personality traits 2-col grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px 24px', marginBottom: 24 }}>
-          {traits.map((trait) => {
-            const trendDir = trait.delta > 0 ? 'up' : trait.delta < 0 ? 'down' : 'stable';
-            const trendColor = trendDir === 'up' ? 'var(--success)' : trendDir === 'down' ? 'var(--warning)' : 'var(--muted-foreground)';
-            const TrendIcon = trendDir === 'up'
-              ? <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
-              : trendDir === 'down'
-              ? <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-              : <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>;
-            return (
-              <div key={trait.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 12px', background: 'var(--surface-secondary)', borderRadius: 'var(--radius-sm)' }}>
-                <span style={{ fontSize: 12, fontWeight: 500, textTransform: 'capitalize', color: 'var(--foreground)' }}>{trait.name}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <GaugeBar value={trait.strength} max={1} color="var(--primary)" width={80} height={4} />
-                  <span style={{ fontSize: 11, fontFamily: 'IBM Plex Mono', color: 'var(--foreground)', width: 32, textAlign: 'right' }}>
-                    {trait.strength.toFixed(2)}
-                  </span>
-                  <span style={{ color: trendColor, display: 'flex', alignItems: 'center' }}>
-                    {TrendIcon}
-                    <span style={{ fontSize: 9, fontFamily: 'IBM Plex Mono', marginLeft: 1 }}>
-                      {Math.abs(trait.delta).toFixed(2)}
-                    </span>
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        {traits.length > 0 ? (
+          <>
+            {/* Personality traits 2-col grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px 24px', marginBottom: 24 }}>
+              {traits.map((trait) => {
+                const trendDir = trait.delta > 0 ? 'up' : trait.delta < 0 ? 'down' : 'stable';
+                const trendColor = trendDir === 'up' ? 'var(--success)' : trendDir === 'down' ? 'var(--warning)' : 'var(--muted-foreground)';
+                const TrendIcon = trendDir === 'up'
+                  ? <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                  : trendDir === 'down'
+                  ? <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  : <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>;
+                return (
+                  <div key={trait.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 12px', background: 'var(--surface-secondary)', borderRadius: 'var(--radius-sm)' }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, textTransform: 'capitalize', color: 'var(--foreground)' }}>{trait.name}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <GaugeBar value={trait.strength} max={1} color="var(--primary)" width={80} height={4} />
+                      <span style={{ fontSize: 11, fontFamily: 'IBM Plex Mono', color: 'var(--foreground)', width: 32, textAlign: 'right' }}>
+                        {trait.strength.toFixed(2)}
+                      </span>
+                      <span style={{ color: trendColor, display: 'flex', alignItems: 'center' }}>
+                        {TrendIcon}
+                        <span style={{ fontSize: 9, fontFamily: 'IBM Plex Mono', marginLeft: 1 }}>
+                          {Math.abs(trait.delta).toFixed(2)}
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
 
-        {/* Identity drift sparkline */}
-        <div style={{ background: 'var(--surface-secondary)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <span className="t-label" style={{ color: 'var(--muted-foreground)' }}>IDENTITY DRIFT · LAST 12 CYCLES</span>
+            {/* Identity drift sparkline */}
+            <div style={{ background: 'var(--surface-secondary)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span className="t-label" style={{ color: 'var(--muted-foreground)' }}>IDENTITY DRIFT · LAST 12 CYCLES</span>
+              </div>
+              <Sparkline data={DRIFT_HISTORY} width={100} height={48} color="var(--warning)" filled />
+            </div>
+          </>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '24px 0', color: 'var(--muted-foreground)' }}>
+            <Icon name="identity" size={32} style={{ opacity: 0.2 }} />
+            <span style={{ fontSize: 12 }}>Personality traits will appear as the persona module develops.</span>
           </div>
-          <Sparkline data={DRIFT_HISTORY} width={100} height={48} color="var(--warning)" filled />
-        </div>
+        )}
       </Card>
 
       {/* ─── Dynamic State card ─── */}
@@ -428,6 +425,58 @@ const IdentityPageContent: React.FC = () => {
       )}
     </div>
   );
+};
+
+// ─── IdentityPage ───
+const IdentityPageContent: React.FC = () => {
+  const isConnected = useSentientStore((s) => s.isConnected);
+  const [state, setState] = useState<PersonaState | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchState = async () => {
+      try {
+        const res = await fetch('/api/persona/state');
+        if (res.ok) {
+          const data = await res.json();
+          setState(data);
+        } else {
+          setError('Persona state unavailable');
+        }
+      } catch {
+        setError('Failed to fetch persona state');
+      }
+      setLoading(false);
+    };
+    fetchState();
+  }, []);
+
+  if (loading) {
+    return <PageLoader label="Loading identity state..." size={48} />;
+  }
+
+  if (error || !state) {
+    // When connected, show partial state with "initializing" message instead of blank error
+    if (isConnected) {
+      const partialState: PersonaState = {
+        maturity_stage: 'nascent',
+        personality_traits: {},
+        drift_log: [],
+        constitutional_locked: true,
+        dynamic_state: { energy_level: 0.5, current_mood: { neutral: 0.5 }, current_focus: 'initializing' },
+      };
+      return <IdentityView state={partialState} isConnected={isConnected} initializing />;
+    }
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 16, opacity: 0.4 }}>
+        <Icon name="identity" size={48} style={{ color: 'var(--muted-foreground)' }} />
+        <span style={{ fontSize: 13, color: 'var(--muted-foreground)' }}>Not connected — identity state requires backend.</span>
+      </div>
+    );
+  }
+
+  return <IdentityView state={state} isConnected={isConnected} />;
 };
 
 export const IdentityPage: React.FC = () => <IdentityPageContent />;

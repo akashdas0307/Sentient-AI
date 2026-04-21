@@ -4,6 +4,20 @@ import { useSentientStore } from '../store/useSentientStore';
 import type { MonologueEntry } from '../types';
 import { formatTimestamp } from '../lib/format';
 
+const STAGE_TYPE_MAP: Record<string, string> = {
+  thalamus: 'perception',
+  input: 'perception',
+  cognitive_core: 'reasoning',
+  cognition: 'reasoning',
+  memory: 'memory-fetch',
+  world_model: 'decision',
+  sleep: 'daydream',
+  persona: 'perception',
+  brainstem: 'perception',
+  inference: 'reasoning',
+  unknown: 'reasoning',
+};
+
 const THOUGHT_COLORS: Record<string, string> = {
   perception: 'var(--primary)',
   reasoning: 'var(--accent)',
@@ -174,7 +188,7 @@ function normalizeThoughts(entries: MonologueEntry[]): ThoughtEntry[] {
     .map((e) => ({
       id: `th-${e.id}`,
       text: e.monologue,
-      type: e.is_daydream ? 'daydream' : 'reasoning',
+      type: e.is_daydream ? 'daydream' : (e.stage ? (STAGE_TYPE_MAP[e.stage] ?? 'reasoning') : 'reasoning'),
       ts: e.timestamp,
     }))
     .sort((a, b) => a.ts - b.ts);
@@ -193,11 +207,11 @@ export function ChatPage({ onSendMessage, sendChat: sendChatProp }: ChatPageProp
   const isConnected = useSentientStore((s) => s.isConnected);
   const clearMessages = useSentientStore((s) => s.clearMessages);
 
-  // Use store data when available, fall back to mocks
+  // Use store data when available, fall back to mocks only when disconnected
   const messages: ChatMessage[] =
-    storeMessages.length > 0 ? normalizeMessages(storeMessages) : MOCK_MESSAGES;
+    storeMessages.length > 0 ? normalizeMessages(storeMessages) : (!isConnected ? MOCK_MESSAGES : []);
   const thoughts: ThoughtEntry[] =
-    storeMonologue.length > 0 ? normalizeThoughts(storeMonologue) : MOCK_THOUGHTS;
+    storeMonologue.length > 0 ? normalizeThoughts(storeMonologue) : (!isConnected ? MOCK_THOUGHTS : []);
 
   // ── Local UI state ──────────────────────────────────────────────────────────
   const [input, setInput] = useState('');

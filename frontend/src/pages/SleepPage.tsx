@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Icon, Btn, Card, Pill } from '../components/shared';
+import { useSentientStore } from '../store/useSentientStore';
 import { formatTimestampSecs, formatRelativeSecs, formatDurationSecs } from '../lib/format';
 
 const STAGES = ['awake', 'light', 'deep', 'rem'] as const;
@@ -74,8 +75,10 @@ const STAGE_ICONS: Record<Stage, string> = {
 
 
 export const SleepPage: React.FC = () => {
-  const [sleepState, setSleepState] = useState<SleepState>({ stage: 'deep', duration: 2538, cycle_count: 7 });
-  const [cycles, setCycles] = useState<SleepCycle[]>(MOCK_CONSOLIDATIONS);
+  const isConnected = useSentientStore((s) => s.isConnected);
+  const storeMessages = useSentientStore((s) => s.messages);
+  const [sleepState, setSleepState] = useState<SleepState>({ stage: 'awake', duration: 0, cycle_count: 0 });
+  const [cycles, setCycles] = useState<SleepCycle[]>([]);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [devMode, setDevMode] = useState(false);
@@ -106,7 +109,11 @@ export const SleepPage: React.FC = () => {
           setCycles(Array.isArray(data) ? data : data.consolidations ?? []);
         }
       } catch {
-        // Use mock data on failure
+        // Only use mock data when disconnected
+        if (!isConnected) {
+          setSleepState({ stage: 'deep', duration: 2538, cycle_count: 7 });
+          setCycles(MOCK_CONSOLIDATIONS);
+        }
       }
       setLoading(false);
     };
@@ -123,11 +130,31 @@ export const SleepPage: React.FC = () => {
     }
   };
 
+  // Derive stage history from WebSocket sleep events
+  const stageHistory = useMemo(() => {
+    const sleepEvents = storeMessages
+      .filter(m => m.type === 'event' && m.event_name === 'sleep.stage.changed')
+      .sort((a, b) => a.timestamp - b.timestamp);
+    if (sleepEvents.length === 0) return [] as { stage: Stage; hour: number }[];
+
+    const firstTs = sleepEvents[0].timestamp;
+    return sleepEvents.map(m => {
+      const data = (m.data as Record<string, any>) || {};
+      const stage = (data.to || data.stage || 'awake') as Stage;
+      const hour = (m.timestamp - firstTs) / 3600000;
+      return { stage, hour };
+    });
+  }, [storeMessages]);
+
+  const displayHistory = stageHistory.length > 0 ? stageHistory : (!isConnected ? MOCK_STAGE_HISTORY : []);
+
   const stageDurations = useMemo(() => {
     const counts: Record<Stage, number> = { awake: 0, light: 0, deep: 0, rem: 0 };
-    MOCK_STAGE_HISTORY.forEach(h => { counts[h.stage]++; });
-    return Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, v * 30])) as Record<Stage, number>;
-  }, []);
+    const source = displayHistory.length > 0 ? displayHistory : MOCK_STAGE_HISTORY;
+    source.forEach(h => { counts[h.stage]++; });
+    const intervalMin = 30; // approximate interval between data points
+    return Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, v * intervalMin])) as Record<Stage, number>;
+  }, [displayHistory]);
 
   const totalSleepMins = stageDurations.light + stageDurations.deep + stageDurations.rem;
   const maxSources = Math.max(...cycles.map(c => c.source_count), 1);
@@ -235,7 +262,8 @@ export const SleepPage: React.FC = () => {
                 <div key={i} style={{ position: 'absolute', left: 0, right: 0, top: `${(i / 3) * 100}%`, height: 1, background: 'var(--border)', opacity: 0.3 }} />
               ))}
 
-              <svg width="100%" height="100%" viewBox={`0 0 ${MOCK_STAGE_HISTORY.length} 100`} preserveAspectRatio="none" style={{ display: 'block' }}>
+              {displayHistory.length > 0 ? (
+              <svg width="100%" height="100%" viewBox={`0 0 ${displayHistory.length} 100`} preserveAspectRatio="none" style={{ display: 'block' }}>
                 <defs>
                   <linearGradient id="sleepGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={STAGE_META.awake.color} stopOpacity="0.4" />
@@ -244,21 +272,26 @@ export const SleepPage: React.FC = () => {
                 </defs>
                 <path d={
                   `M 0 100 ` +
-                  MOCK_STAGE_HISTORY.map((h, i) => `L ${i} ${stageY[h.stage]}`).join(' ') +
-                  ` L ${MOCK_STAGE_HISTORY.length - 1} 100 Z`
+                  displayHistory.map((h: { stage: Stage; hour: number }, i: number) => `L ${i} ${stageY[h.stage]}`).join(' ') +
+                  ` L ${displayHistory.length - 1} 100 Z`
                 } fill="url(#sleepGrad)" />
-                {MOCK_STAGE_HISTORY.map((h, i) => {
+                {displayHistory.map((h: { stage: Stage; hour: number }, i: number) => {
                   if (i === 0) return null;
-                  const prev = MOCK_STAGE_HISTORY[i - 1];
+                  const prev = displayHistory[i - 1];
                   return (
                     <line key={i} x1={i - 1} y1={stageY[prev.stage]} x2={i} y2={stageY[h.stage]}
                       stroke={STAGE_META[h.stage].color} strokeWidth="1.5" strokeLinecap="round" />
                   );
                 })}
-                {MOCK_STAGE_HISTORY.map((h, i) => (
+                {displayHistory.map((h: { stage: Stage; hour: number }, i: number) => (
                   <circle key={i} cx={i} cy={stageY[h.stage]} r="0.8" fill={STAGE_META[h.stage].color} />
                 ))}
               </svg>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted-foreground)', fontSize: 12 }}>
+                  {isConnected ? 'Waiting for sleep stage data...' : 'Connect to see sleep stage history'}
+                </div>
+              )}
             </div>
           </div>
 
@@ -295,7 +328,11 @@ export const SleepPage: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 140, marginBottom: 16 }}>
-            {cycles.map(c => {
+            {cycles.length === 0 ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', color: 'var(--muted-foreground)', fontSize: 12 }}>
+                {isConnected ? 'No consolidation cycles yet — cycles appear after sleep periods.' : 'No data available.'}
+              </div>
+            ) : cycles.map(c => {
               const pct = (c.source_count / maxSources) * 100;
               const isExpanded = expanded === c.id;
               return (

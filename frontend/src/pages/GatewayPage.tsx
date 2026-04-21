@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useSentientStore } from '../store/useSentientStore';
 import { Card, StatCard, Sparkline, Pill, Icon } from '../components/shared';
 import type { InferenceCall } from '../types/gateway';
@@ -168,19 +168,92 @@ const CallRow: React.FC<{ call: InferenceCall; expanded: boolean; onToggle: () =
 const GatewayPageContent: React.FC = () => {
   const gatewayStatus = useSentientStore((s) => s.gatewayStatus);
   const gatewayCalls = useSentientStore((s) => s.gatewayCalls);
+  const isConnected = useSentientStore((s) => s.isConnected);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   const totalCalls = gatewayStatus?.total_calls ?? 0;
   const totalCost = gatewayStatus?.total_cost_usd ?? 0;
-  const endpoints = gatewayStatus?.endpoints ?? (Object.keys(MOCK_ENDPOINTS).length > 0 ? MOCK_ENDPOINTS : null);
-  const calls = gatewayCalls.length > 0 ? gatewayCalls : MOCK_CALLS;
+  const endpoints = gatewayStatus?.endpoints ?? (!isConnected ? MOCK_ENDPOINTS : null);
+  const calls = gatewayCalls.length > 0 ? gatewayCalls : (!isConnected ? MOCK_CALLS : []);
 
   const fallbackCount = endpoints
     ? Object.values(endpoints).reduce((sum: number, ep: any) => sum + ep.failure_count, 0)
     : 0;
   const fallbackRate = totalCalls > 0 ? fallbackCount / totalCalls : 0;
 
-  const endpointList = endpoints ? Object.entries(endpoints) : Object.entries(MOCK_ENDPOINTS);
+  const endpointList = endpoints ? Object.entries(endpoints) : (!isConnected ? Object.entries(MOCK_ENDPOINTS) : []);
+
+  // Compute sparklines from real gateway call data
+  const callVolumeSpark = useMemo(() => {
+    if (gatewayCalls.length === 0) return MOCK_CALLS_SPARK;
+    const byHour: Record<number, number> = {};
+    gatewayCalls.forEach(c => {
+      const hour = Math.floor((Date.now() - c.timestamp) / 3600000);
+      byHour[hour] = (byHour[hour] || 0) + 1;
+    });
+    return Object.values(byHour).reverse().slice(-15);
+  }, [gatewayCalls]);
+
+  const costSpark = useMemo(() => {
+    if (gatewayCalls.length === 0) return MOCK_CALLS_SPARK.map(v => v * 0.0018);
+    const byHour: Record<number, number> = {};
+    gatewayCalls.forEach(c => {
+      const hour = Math.floor((Date.now() - c.timestamp) / 3600000);
+      byHour[hour] = (byHour[hour] || 0) + c.cost_usd;
+    });
+    return Object.values(byHour).reverse().slice(-15);
+  }, [gatewayCalls]);
+
+  const fallbackSpark = useMemo(() => {
+    if (gatewayCalls.length === 0) return MOCK_CALLS_SPARK.map(() => Math.random() * 0.08);
+    const byHour: Record<number, { total: number; fallback: number }> = {};
+    gatewayCalls.forEach(c => {
+      const hour = Math.floor((Date.now() - c.timestamp) / 3600000);
+      if (!byHour[hour]) byHour[hour] = { total: 0, fallback: 0 };
+      byHour[hour].total++;
+      if (c.fallback_used || c.error) byHour[hour].fallback++;
+    });
+    return Object.values(byHour).map(h => h.total > 0 ? h.fallback / h.total : 0).reverse().slice(-15);
+  }, [gatewayCalls]);
+
+  // Compute per-model sparklines from real data
+  const modelSparklines = useMemo(() => {
+    if (gatewayCalls.length === 0) return MOCK_SPARK;
+    const byModel: Record<string, Record<number, number>> = {};
+    gatewayCalls.forEach(c => {
+      const label = c.model_label;
+      if (!byModel[label]) byModel[label] = {};
+      const hour = Math.floor((Date.now() - c.timestamp) / 3600000);
+      byModel[label][hour] = (byModel[label][hour] || 0) + 1;
+    });
+    const result: Record<string, number[]> = {};
+    Object.entries(byModel).forEach(([model, hours]) => {
+      result[model] = Object.values(hours).reverse().slice(-10);
+    });
+    return result;
+  }, [gatewayCalls]);
+
+  // Compute per-model latency/cost from real data
+  const modelStats = useMemo(() => {
+    if (gatewayCalls.length === 0) return {};
+    const byModel: Record<string, { latencies: number[]; costs: number[] }> = {};
+    gatewayCalls.forEach(c => {
+      const label = c.model_label;
+      if (!byModel[label]) byModel[label] = { latencies: [], costs: [] };
+      byModel[label].latencies.push(c.duration_ms);
+      byModel[label].costs.push(c.cost_usd);
+    });
+    const result: Record<string, { p50: number; p95: number; avgCost: number }> = {};
+    Object.entries(byModel).forEach(([model, data]) => {
+      const sorted = [...data.latencies].sort((a, b) => a - b);
+      result[model] = {
+        p50: sorted[Math.floor(sorted.length * 0.5)] ?? 0,
+        p95: sorted[Math.floor(sorted.length * 0.95)] ?? sorted[sorted.length - 1] ?? 0,
+        avgCost: data.costs.length > 0 ? data.costs.reduce((a, b) => a + b, 0) / data.costs.length : 0,
+      };
+    });
+    return result;
+  }, [gatewayCalls]);
 
   const toggleExpand = (i: number) => {
     setExpandedIdx(prev => (prev === i ? null : i));
@@ -192,14 +265,19 @@ const GatewayPageContent: React.FC = () => {
       <div style={{ padding: '24px 24px 0', flexShrink: 0, maxWidth: 1400, width: '100%', margin: '0 auto' }}>
         {/* Stat row */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
-          <StatCard label="Total Calls Today" value={totalCalls.toLocaleString()} color="var(--foreground)" sparkData={MOCK_CALLS_SPARK} />
-          <StatCard label="Total Cost Today" value={formatCostUtil(totalCost)} color="var(--success)" sparkData={MOCK_CALLS_SPARK.map(v => v * 0.0018)} />
-          <StatCard label="Fallback Rate" value={`${(fallbackRate * 100).toFixed(1)}%`} color={fallbackRate > 0.05 ? 'var(--warning)' : 'var(--success)'} sparkData={MOCK_CALLS_SPARK.map(() => Math.random() * 0.08)} />
+          <StatCard label="Total Calls Today" value={totalCalls.toLocaleString()} color="var(--foreground)" sparkData={callVolumeSpark} />
+          <StatCard label="Total Cost Today" value={formatCostUtil(totalCost)} color="var(--success)" sparkData={costSpark} />
+          <StatCard label="Fallback Rate" value={`${(fallbackRate * 100).toFixed(1)}%`} color={fallbackRate > 0.05 ? 'var(--warning)' : 'var(--success)'} sparkData={fallbackSpark} />
         </div>
 
         {/* Model health grid */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
-          {endpointList.map(([name, metrics]: [string, any]) => (
+          {endpointList.length === 0 ? (
+            <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 120, color: 'var(--muted-foreground)', gap: 8 }}>
+              <Icon name="zap" size={32} style={{ opacity: 0.2 }} />
+              <span style={{ fontSize: 12 }}>{isConnected ? 'Waiting for inference calls — data appears as requests are made.' : 'No gateway data available.'}</span>
+            </div>
+          ) : endpointList.map(([name, metrics]: [string, any]) => (
             <Card key={name} style={{ padding: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
                 <div>
@@ -211,24 +289,24 @@ const GatewayPageContent: React.FC = () => {
                 <GaugeArc value={metrics.health_score} size={72} />
               </div>
 
-              {/* Latency mock */}
+              {/* Latency & cost from real data */}
               <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
                 <div style={{ flex: 1 }}>
                   <div className="t-label" style={{ color: 'var(--muted-foreground)', marginBottom: 4 }}>p50</div>
                   <div style={{ fontSize: 12, fontFamily: 'IBM Plex Mono', color: 'var(--foreground)' }}>
-                    {(120 + Math.random() * 300).toFixed(0)}ms
+                    {modelStats[name] ? `${modelStats[name].p50.toFixed(0)}ms` : '—'}
                   </div>
                 </div>
                 <div style={{ flex: 1 }}>
                   <div className="t-label" style={{ color: 'var(--muted-foreground)', marginBottom: 4 }}>p95</div>
                   <div style={{ fontSize: 12, fontFamily: 'IBM Plex Mono', color: 'var(--foreground)' }}>
-                    {(600 + Math.random() * 1200).toFixed(0)}ms
+                    {modelStats[name] ? `${modelStats[name].p95.toFixed(0)}ms` : '—'}
                   </div>
                 </div>
                 <div style={{ flex: 1 }}>
                   <div className="t-label" style={{ color: 'var(--muted-foreground)', marginBottom: 4 }}>avg cost</div>
                   <div style={{ fontSize: 12, fontFamily: 'IBM Plex Mono', color: 'var(--success)' }}>
-                    ${(0.002 + Math.random() * 0.015).toFixed(4)}
+                    {modelStats[name] ? `$${modelStats[name].avgCost.toFixed(4)}` : '—'}
                   </div>
                 </div>
               </div>
@@ -249,7 +327,7 @@ const GatewayPageContent: React.FC = () => {
               {/* Sparkline */}
               <div>
                 <div className="t-label" style={{ color: 'var(--muted-foreground)', marginBottom: 6 }}>Call Volume · Last 10 cycles</div>
-                <Sparkline data={MOCK_SPARK[name] || MOCK_SPARK['glm-5.1']} width={200} height={32} color="var(--primary)" filled />
+                <Sparkline data={modelSparklines[name] || MOCK_SPARK[name] || MOCK_SPARK['glm-5.1']} width={200} height={32} color="var(--primary)" filled />
               </div>
             </Card>
           ))}
@@ -269,7 +347,9 @@ const GatewayPageContent: React.FC = () => {
           {calls.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12, opacity: 0.3 }}>
               <Icon name="zap" size={48} style={{ color: 'var(--muted-foreground)' }} />
-              <span className="t-label" style={{ color: 'var(--muted-foreground)' }}>No inference calls yet</span>
+              <span className="t-label" style={{ color: 'var(--muted-foreground)' }}>
+                {isConnected ? 'Waiting for inference calls...' : 'No inference calls recorded'}
+              </span>
             </div>
           ) : (
             calls.map((call, i) => (

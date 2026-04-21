@@ -418,8 +418,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage = 'chat', onNaviga
                 background: active ? 'var(--primary-subtle)' : 'transparent',
                 color: active ? 'var(--primary)' : 'var(--muted-foreground)',
               }}
-              onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--surface-secondary)'; e.currentTarget.style.color = active ? 'var(--primary)' : 'var(--foreground)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = active ? 'var(--primary-subtle)' : 'transparent'; e.currentTarget.style.color = active ? 'var(--primary)' : 'var(--muted-foreground)'; }}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--surface-secondary)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = ''; }}
             >
               {active && <div style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 2, borderRadius: 1, background: 'var(--primary)' }} />}
               <Icon name={item.icon} size={18} />

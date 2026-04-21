@@ -83,6 +83,7 @@ function getEntryContent(e: MemoryEntry): string {
 // ─── Component ────────────────────────────────────────────────────────────────
 export function MemoryPage() {
   const memoryStats = useSentientStore((s) => s.memoryStats);
+  const isConnected = useSentientStore((s) => s.isConnected);
   const [search, setSearch] = useState('');
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set(MEM_TYPES));
   const [importanceMin, setImportanceMin] = useState(0);
@@ -101,12 +102,12 @@ export function MemoryPage() {
       if (res.ok) {
         const data = await res.json();
         const raw: MemoryEntry[] = data.entries || (Array.isArray(data) ? data : []);
-        setEntries(raw.length > 0 ? raw : MOCK_MEMORIES);
+        setEntries(raw.length > 0 ? raw : []);
       } else {
-        setEntries(MOCK_MEMORIES);
+        setEntries([]);
       }
     } catch {
-      setEntries(MOCK_MEMORIES);
+      setEntries([]);
     }
     setLoading(false);
   }, []);
@@ -212,10 +213,22 @@ export function MemoryPage() {
               color: 'var(--muted-foreground)', gap: 8,
             }}>
               <Icon name="memory" size={40} style={{ opacity: 0.2 }} />
-              <span style={{ fontSize: 13 }}>No memories match these filters.</span>
-              <span style={{ fontSize: 11, color: 'var(--subtle-foreground)' }}>
-                Try lowering the importance threshold or broadening type selection.
-              </span>
+              {!isConnected ? (
+                <>
+                  <span style={{ fontSize: 13 }}>Disconnected — showing sample memories.</span>
+                  <span style={{ fontSize: 11, color: 'var(--subtle-foreground)' }}>Connect to the backend to see live data.</span>
+                </>
+              ) : entries.length === 0 ? (
+                <>
+                  <span style={{ fontSize: 13 }}>Waiting for memories from the backend...</span>
+                  <span style={{ fontSize: 11, color: 'var(--subtle-foreground)' }}>Memories will appear as they are stored.</span>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: 13 }}>No memories match these filters.</span>
+                  <span style={{ fontSize: 11, color: 'var(--subtle-foreground)' }}>Try lowering the importance threshold or broadening type selection.</span>
+                </>
+              )}
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 900 }}>

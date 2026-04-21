@@ -132,6 +132,7 @@ export function MemoryGraphPage() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Graph state
+  const isConnected = useSentientStore((s) => s.isConnected);
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [loading, setLoading] = useState(false);
@@ -215,17 +216,19 @@ export function MemoryGraphPage() {
           }
         }
       } catch { /* silent */ }
-      // Final fallback: mock data
-      const typePositions: Record<string, { cx: number; cy: number }> = {
-        EPISODIC: { cx: 300, cy: 200 }, SEMANTIC: { cx: 550, cy: 200 },
-        PROCEDURAL: { cx: 300, cy: 420 }, EMOTIONAL: { cx: 550, cy: 420 },
-      };
-      const positioned = MOCK_NODES.map(n => {
-        const pos = typePositions[getNodeType(n)] ?? { cx: 420, cy: 310 };
-        return { ...n, x: pos.cx + (Math.random() - 0.5) * 180, y: pos.cy + (Math.random() - 0.5) * 160, vx: 0, vy: 0 } as GraphNode;
-      });
-      setNodes(positioned);
-      setEdges(MOCK_EDGES);
+      // Only use mock data when disconnected
+      if (!isConnected) {
+        const typePositions: Record<string, { cx: number; cy: number }> = {
+          EPISODIC: { cx: 300, cy: 200 }, SEMANTIC: { cx: 550, cy: 200 },
+          PROCEDURAL: { cx: 300, cy: 420 }, EMOTIONAL: { cx: 550, cy: 420 },
+        };
+        const positioned = MOCK_NODES.map(n => {
+          const pos = typePositions[getNodeType(n)] ?? { cx: 420, cy: 310 };
+          return { ...n, x: pos.cx + (Math.random() - 0.5) * 180, y: pos.cy + (Math.random() - 0.5) * 160, vx: 0, vy: 0 } as GraphNode;
+        });
+        setNodes(positioned);
+        setEdges(MOCK_EDGES);
+      }
     }
     setLoading(false);
   }, []);

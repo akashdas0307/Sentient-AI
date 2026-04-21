@@ -50,7 +50,7 @@ const App: React.FC = () => {
       fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, session_id: 'default' }),
+        body: JSON.stringify({ message: text, session_id: 'default' }),
       }).catch((err) => console.error('REST fallback failed', err));
     }
   };
