@@ -13,6 +13,20 @@ function normalizeTimestamp(ts: number | undefined): number {
 const MAX_RETRIES = 10;
 const MAX_SENT_TURN_IDS = 200;
 
+/** Map backend event_name to cognitive stage for monologue coloring. */
+function _map_event_to_stage(eventName: string): string {
+  if (eventName.startsWith('thalamus.')) return 'thalamus';
+  if (eventName.startsWith('memory.') || eventName.startsWith('cognition.memory')) return 'memory';
+  if (eventName.startsWith('cognition.') || eventName.startsWith('cognitive.')) return 'cognitive_core';
+  if (eventName.startsWith('world_model.') || eventName.startsWith('worldmodel.')) return 'world_model';
+  if (eventName.startsWith('sleep.')) return 'sleep';
+  if (eventName.startsWith('persona.') || eventName.startsWith('identity.')) return 'persona';
+  if (eventName.startsWith('brainstem.')) return 'brainstem';
+  if (eventName.startsWith('inference.')) return 'inference';
+  if (eventName.startsWith('chat.')) return 'input';
+  return 'unknown';
+}
+
 export const useWebSocket = (url: string) => {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number>(0);
@@ -58,23 +72,25 @@ export const useWebSocket = (url: string) => {
         }
 
         switch (message.type) {
-          case 'event':
+          case 'event': {
             // chat.input.received dedup already handled above
-            // Handle cognitive.cycle.complete for inner monologue
-            if (message.event_name === 'cognitive.cycle.complete') {
-              const monologue = (message.data as any)?.monologue || '';
-              if (monologue) { // Only add non-empty monologue entries
-                useSentientStore.getState().addMonologueEntry({
-                  id: (message.data as any)?.cycle_id || message.timestamp.toString(),
-                  monologue,
-                  is_daydream: (message.data as any)?.is_daydream || false,
-                  decision_count: (message.data as any)?.decision_count || 0,
-                  duration_ms: (message.data as any)?.duration_ms || null,
-                  timestamp: message.timestamp,
-                });
-              }
+            // Derive monologue text from various event types
+            const data = message.data as Record<string, any> || {};
+            const stage = message.stage || _map_event_to_stage(message.event_name || '');
+            const monologue = data.monologue || data.thought || data.summary || data.description || '';
+            if (monologue) {
+              useSentientStore.getState().addMonologueEntry({
+                id: data.cycle_id || data.event_id || message.timestamp.toString(),
+                monologue,
+                is_daydream: data.is_daydream || false,
+                decision_count: data.decision_count || 0,
+                duration_ms: data.duration_ms || null,
+                timestamp: message.timestamp,
+                stage,
+              });
             }
             break;
+          }
           case 'health':
             useSentientStore.getState().setHealthSnapshot(message.health || (message as any).data);
             break;

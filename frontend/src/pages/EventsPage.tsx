@@ -1,176 +1,324 @@
-import React, { useState, useMemo } from 'react';
-import { ListTree, Filter, Search, Clock, Database, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Icon, Btn, Pill } from '../components/shared';
 import { useSentientStore } from '../store/useSentientStore';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
-import { cn } from '@/lib/utils';
+import { formatTimestampPrecise } from '../lib/format';
+
+const EVENT_TYPES = [
+  'chat.input.received',
+  'memory.stored',
+  'cognition.cycle.complete',
+  'sleep.stage.changed',
+  'persona.drift.detected',
+  'inference.call.complete',
+  'brainstem.pulse',
+  'thalamus.route',
+];
+
+const MODULES = [
+  'Thalamus',
+  'Cognitive Core',
+  'Memory Architecture',
+  'Sleep Scheduler',
+  'Persona Manager',
+  'Brainstem',
+  'Inference Gateway',
+  'World Model',
+];
+
+const SEVERITIES = ['info', 'warn', 'error'] as const;
+type Severity = typeof SEVERITIES[number];
+
+/** Map backend event_name to display module name. */
+const EVENT_MODULE_MAP: Record<string, string> = {
+  'thalamus': 'Thalamus',
+  'cognitive_core': 'Cognitive Core',
+  'cognition': 'Cognitive Core',
+  'memory': 'Memory Architecture',
+  'sleep': 'Sleep Scheduler',
+  'persona': 'Persona Manager',
+  'brainstem': 'Brainstem',
+  'inference': 'Inference Gateway',
+  'world_model': 'World Model',
+  'chat': 'Brainstem',
+};
+
+/** Derive severity from event_name or data. */
+function deriveSeverity(eventName: string, data: Record<string, unknown>): Severity {
+  if (eventName.includes('.error') || eventName.includes('.failed')) return 'error';
+  if (eventName.includes('.warning') || eventName.includes('.fallback')) return 'warn';
+  if ((data as any)?.severity === 'error' || (data as any)?.level === 'error') return 'error';
+  if ((data as any)?.severity === 'warn' || (data as any)?.level === 'warn') return 'warn';
+  return 'info';
+}
+
+/** Infer module from event_name prefix. */
+function deriveModule(eventName: string): string {
+  const prefix = eventName.split('.')[0];
+  return EVENT_MODULE_MAP[prefix] || prefix.charAt(0).toUpperCase() + prefix.slice(1);
+}
+
+interface StreamEvent {
+  id: string;
+  type: string;
+  module: string;
+  severity: Severity;
+  ts: number;
+  payload: Record<string, unknown>;
+}
+
+const PAYLOADS: Record<string, Record<string, unknown>> = {
+  'chat.input.received': { text: 'User message processed', tokens: 142 },
+  'memory.stored': { memory_type: 'EPISODIC', importance: 0.73 },
+  'cognition.cycle.complete': { duration_ms: 234, decisions: 3 },
+  'sleep.stage.changed': { from: 'light', to: 'deep', reason: 'scheduled_transition' },
+  'persona.drift.detected': { trait: 'curiosity', delta: 0.023, severity: 'info' },
+  'inference.call.complete': { model: 'glm-5.1', latency_ms: 187, tokens_out: 142 },
+  'brainstem.pulse': { cycle: 1847, vitals_ok: true },
+  'thalamus.route': { source: 'perception', destination: 'cognition', priority: 2 },
+};
+
+const generateEvent = (i: number): StreamEvent => {
+  const type = EVENT_TYPES[Math.floor(Math.random() * EVENT_TYPES.length)];
+  const module = MODULES[Math.floor(Math.random() * MODULES.length)];
+  const severity: Severity = Math.random() > 0.9 ? 'error' : Math.random() > 0.75 ? 'warn' : 'info';
+  const ts = Date.now() - i * 1200;
+  return {
+    id: `evt-${i}-${ts}`,
+    type,
+    module,
+    severity,
+    ts,
+    payload: PAYLOADS[type] || {},
+  };
+};
+
+const INITIAL_EVENTS: StreamEvent[] = Array.from({ length: 60 }, (_, i) => generateEvent(i));
+
+const SEV_COLORS: Record<Severity, string> = {
+  info: 'var(--muted-foreground)',
+  warn: 'var(--warning)',
+  error: 'var(--destructive)',
+};
+
+const SEV_BORDER: Record<Severity, string> = {
+  info: 'var(--border)',
+  warn: 'var(--warning)',
+  error: 'var(--destructive)',
+};
 
 export const EventsPage: React.FC = () => {
-  const messages = useSentientStore((s) => s.messages);
-  const [filterStage, setFilterStage] = useState<string>('all');
-  const [filterType, setFilterType] = useState<string>('all');
+  const storeMessages = useSentientStore(s => s.messages);
+  const isConnected = useSentientStore(s => s.isConnected);
+  const [paused, setPaused] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
-  const events = useMemo(() => {
-    return messages
-      .filter((m) => m.type === 'event')
-      .map((m) => ({
-        stage: (m as any).stage || 'system',
-        event_name: (m as any).event_name || 'unknown',
-        data: (m as any).data || {},
-        turn_id: (m as any).turn_id || null,
-        timestamp: m.timestamp,
-      }));
-  }, [messages]);
+  const [search, setSearch] = useState('');
+  const [timeRange, setTimeRange] = useState('1h');
+  const [sevFilter, setSevFilter] = useState<Set<Severity>>(new Set(['info', 'warn', 'error']));
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [moduleFilter, setModuleFilter] = useState('all');
 
-  const stages = useMemo(() => {
-    const set = new Set(events.map((e) => e.stage));
-    return ['all', ...Array.from(set)];
-  }, [events]);
+  // Convert store messages to StreamEvents
+  const events: StreamEvent[] = useMemo(() => {
+    const result: StreamEvent[] = storeMessages
+      .filter(m => m.type === 'event')
+      .map(m => {
+        const eventName = m.event_name || (m.data as any)?.event_name || 'unknown';
+        const data = (m.data as Record<string, unknown>) || {};
+        const stage = m.stage || '';
+        return {
+          id: `${m.timestamp}-${eventName}`,
+          type: eventName,
+          module: deriveModule(eventName),
+          severity: deriveSeverity(eventName, data),
+          ts: m.timestamp,
+          payload: data,
+        };
+      })
+      .sort((a, b) => b.ts - a.ts);
+    return result.length > 0 ? result : (isConnected ? [] : INITIAL_EVENTS);
+  }, [storeMessages, isConnected]);
 
-  const types = useMemo(() => {
-    const set = new Set(events.map((e) => e.event_name));
-    return ['all', ...Array.from(set)];
-  }, [events]);
+  const eventsPerSec = events.length > 0 ? Math.min(Math.round(events.length / Math.max(1, (Date.now() - (events[events.length - 1]?.ts || Date.now())) / 1000)), 99) : 0;
 
-  const filtered = useMemo(() => {
-    return events.filter((e) => {
-      if (filterStage !== 'all' && e.stage !== filterStage) return false;
-      if (filterType !== 'all' && e.event_name !== filterType) return false;
-      return true;
+  const toggleSev = (s: Severity) => {
+    setSevFilter(prev => {
+      const n = new Set(prev);
+      n.has(s) ? n.delete(s) : n.add(s);
+      return n;
     });
-  }, [events, filterStage, filterType]);
-
-  const stageColor = (stage: string) => {
-    switch (stage) {
-      case 'perception': return 'var(--primary)';
-      case 'cognition': return 'var(--accent)';
-      case 'action': return 'var(--success)';
-      case 'memory': return 'var(--warning)';
-      default: return 'var(--text-muted)';
-    }
   };
 
-  const getStageBadgeColor = (stage: string) => {
-    switch (stage) {
-      case 'perception': return 'text-primary border-primary/20 bg-primary/5';
-      case 'cognition': return 'text-accent border-accent/20 bg-accent/5';
-      case 'action': return 'text-success border-success/20 bg-success/5';
-      case 'memory': return 'text-warning border-warning/20 bg-warning/5';
-      default: return 'text-muted-foreground border-border bg-muted/30';
-    }
+  const toggleExpand = (id: string) => {
+    setExpandedIds(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  };
+
+  const filtered = useMemo(() => {
+    return events.filter(e => {
+      if (!sevFilter.has(e.severity)) return false;
+      if (typeFilter !== 'all' && e.type !== typeFilter) return false;
+      if (moduleFilter !== 'all' && e.module !== moduleFilter) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        if (!e.type.toLowerCase().includes(q) && !e.module.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [events, sevFilter, typeFilter, moduleFilter, search]);
+
+  const clearFilters = () => {
+    setSearch('');
+    setTimeRange('1h');
+    setSevFilter(new Set(['info', 'warn', 'error']));
+    setTypeFilter('all');
+    setModuleFilter('all');
   };
 
   return (
-    <div className="h-full flex flex-col bg-background overflow-hidden">
-      <div className="p-6 border-b border-border bg-card/30 backdrop-blur-sm">
-        <div className="flex items-center justify-between mb-6">
-          <div className="space-y-1">
-            <h2 className="text-2xl font-bold tracking-tight text-foreground">Event Stream</h2>
-            <p className="text-sm text-muted-foreground uppercase tracking-widest font-mono text-[10px]">Neural pulse monitoring • Real-time telemetry</p>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Filter bar */}
+      <div style={{ flexShrink: 0, padding: '16px 24px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Row 1 */}
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <Icon name="search" size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted-foreground)' }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search events..."
+              style={{
+                width: '100%', padding: '8px 12px 8px 36px',
+                background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 999,
+                color: 'var(--foreground)', fontFamily: 'inherit', fontSize: 12, outline: 'none',
+              }} />
           </div>
-          <Badge variant="outline" className="font-mono text-xs border-primary/20 text-primary px-3">
-            {filtered.length} BROADCASTS
-          </Badge>
+          <div style={{ display: 'flex', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 999, overflow: 'hidden' }}>
+            {(['5m', '1h', '24h', 'all'] as const).map(t => (
+              <div key={t} onClick={() => setTimeRange(t)} style={{
+                padding: '6px 12px', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', cursor: 'pointer',
+                background: timeRange === t ? 'var(--primary-subtle)' : 'transparent',
+                color: timeRange === t ? 'var(--primary)' : 'var(--muted-foreground)',
+                textTransform: 'uppercase',
+              }}>{t}</div>
+            ))}
+          </div>
+          <Btn variant={paused ? 'primary' : 'outline'} size="sm" onClick={() => setPaused(p => !p)}>
+            <Icon name={paused ? 'play' : 'pause'} size={12} />
+            {paused ? 'Resume' : 'Pause'}
+          </Btn>
+          <Btn variant="ghost" size="sm" onClick={clearFilters}>Clear</Btn>
         </div>
-
-        {/* Filters */}
-        <div className="flex flex-wrap gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center border border-border">
-              <Filter size={14} className="text-muted-foreground" />
-            </div>
-            <div className="flex gap-2">
-              <Select value={filterStage} onValueChange={(v) => { if (v) setFilterStage(v); }}>
-                <SelectTrigger className="w-[160px] h-9 bg-card border-border rounded-lg text-xs font-medium">
-                  <SelectValue placeholder="All Stages" />
-                </SelectTrigger>
-                <SelectContent className="bg-card border-border">
-                  {stages.map((s) => (
-                    <SelectItem key={s} value={s} className="text-xs">
-                      {s === 'all' ? 'All Stages' : s.toUpperCase()}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Select value={filterType} onValueChange={(v) => { if (v) setFilterType(v); }}>
-                <SelectTrigger className="w-[180px] h-9 bg-card border-border rounded-lg text-xs font-medium">
-                  <SelectValue placeholder="All Types" />
-                </SelectTrigger>
-                <SelectContent className="bg-card border-border">
-                  {types.map((t) => (
-                    <SelectItem key={t} value={t} className="text-xs">
-                      {t === 'all' ? 'All Types' : t.toUpperCase()}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+        {/* Row 2 */}
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' as const }}>
+          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
+            style={{
+              padding: '6px 10px', background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-sm)', color: 'var(--foreground)', fontFamily: 'inherit', fontSize: 11, outline: 'none',
+            }}>
+            <option value="all">All Types</option>
+            {EVENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select value={moduleFilter} onChange={e => setModuleFilter(e.target.value)}
+            style={{
+              padding: '6px 10px', background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-sm)', color: 'var(--foreground)', fontFamily: 'inherit', fontSize: 11, outline: 'none',
+            }}>
+            <option value="all">All Modules</option>
+            {MODULES.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {SEVERITIES.map(s => (
+              <Pill key={s} onClick={() => toggleSev(s)}
+                color={sevFilter.has(s) ? SEV_COLORS[s] : 'var(--subtle-foreground)'}
+                bg={sevFilter.has(s) ? `${SEV_COLORS[s]}15` : 'transparent'}
+                border={sevFilter.has(s) ? `${SEV_COLORS[s]}40` : 'var(--border)'}
+                style={{ cursor: 'pointer', fontSize: 9 }}>
+                {s.toUpperCase()}
+              </Pill>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Events List */}
-      <ScrollArea className="flex-1 px-6">
-        <div className="py-6 space-y-4 max-w-5xl mx-auto w-full">
-          {filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground space-y-3 opacity-30">
-              <ListTree size={48} strokeWidth={1} />
-              <p className="text-sm uppercase tracking-widest font-mono">No telemetry matching filters</p>
-            </div>
-          ) : (
-            filtered.map((event, i) => (
-              <div
-                key={`${event.timestamp}-${i}`}
-                className="group relative flex gap-6 p-4 rounded-xl hover:bg-muted/30 transition-all duration-200 border border-transparent hover:border-border/50"
-              >
-                <div className="flex flex-col items-center gap-2 shrink-0 pt-1">
-                  <div className="w-2.5 h-2.5 rounded-full ring-4 ring-background shadow-lg" style={{ backgroundColor: stageColor(event.stage) }} />
-                  <div className="w-px flex-1 bg-border/50 group-last:hidden" />
-                </div>
-
-                <div className="flex-1 min-w-0 pb-2">
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-bold font-mono text-primary tracking-tight">
-                        {event.event_name.toUpperCase()}
-                      </span>
-                      <Badge
-                        variant="outline"
-                        className={cn("text-[10px] font-mono py-0 px-2 tracking-tighter border", getStageBadgeColor(event.stage))}
-                      >
-                        {event.stage}
-                      </Badge>
-                    </div>
-                    <span className="text-[10px] font-mono text-muted-foreground bg-muted/50 px-2 py-0.5 rounded flex items-center gap-1 border border-border/50">
-                      <Clock size={10} /> {new Date(event.timestamp).toLocaleTimeString([], { hour12: false, fractionalSecondDigits: 3 })}
+      {/* Event list */}
+      <div style={{ flex: 1, overflowY: 'auto', position: 'relative' }}>
+        {filtered.length === 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted-foreground)', gap: 8 }}>
+            <Icon name="events" size={40} style={{ opacity: 0.2 }} />
+            <span style={{ fontSize: 13 }}>No events match these filters.</span>
+            <span style={{ fontSize: 11, color: 'var(--subtle-foreground)' }}>Try widening the time range or clearing severity filters.</span>
+          </div>
+        ) : (
+          <div>
+            {filtered.map(evt => {
+              const expanded = expandedIds.has(evt.id);
+              return (
+                <div key={evt.id} onClick={() => toggleExpand(evt.id)}
+                  style={{
+                    display: 'flex', flexDirection: 'column',
+                    borderBottom: '1px solid var(--border)',
+                    borderLeft: `2px solid ${SEV_BORDER[evt.severity]}`,
+                    cursor: 'pointer', transition: 'background 100ms',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--surface-secondary)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}>
+                  <div style={{ display: 'flex', alignItems: 'center', height: 48, padding: '0 24px', gap: 16 }}>
+                    <span style={{ width: 100, fontSize: 11, color: 'var(--subtle-foreground)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                      {formatTimestampPrecise(evt.ts)}
                     </span>
+                    <Pill color={SEV_COLORS[evt.severity]} bg={`${SEV_COLORS[evt.severity]}12`} border={`${SEV_COLORS[evt.severity]}30`}
+                      style={{ width: 140, justifyContent: 'center', fontSize: 9 }}>
+                      {evt.type.split('.').slice(-1)[0].toUpperCase()}
+                    </Pill>
+                    <span className="t-label" style={{ width: 120, color: 'var(--muted-foreground)', fontSize: 9, flexShrink: 0 }}>
+                      {evt.module.toUpperCase()}
+                    </span>
+                    <span style={{ flex: 1, fontSize: 12, color: 'var(--foreground)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {evt.type}
+                    </span>
+                    <Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={12} style={{ color: 'var(--subtle-foreground)', flexShrink: 0 }} />
                   </div>
-
-                  <div className="bg-muted/40 rounded-lg p-3 border border-border/50 group-hover:bg-muted/60 transition-colors">
-                    {event.data && Object.keys(event.data).length > 0 ? (
-                      <pre className="text-[11px] font-mono text-muted-foreground overflow-x-auto leading-relaxed">
-                        {JSON.stringify(event.data, null, 2)}
-                      </pre>
-                    ) : (
-                      <p className="text-[11px] font-mono text-muted-foreground italic">No additional telemetry data payload</p>
-                    )}
-                  </div>
-
-                  {event.turn_id && (
-                    <div className="mt-2 flex items-center gap-1 text-[10px] font-mono text-primary/40 hover:text-primary transition-colors cursor-pointer">
-                      <Database size={10} /> LINKED TURN ID: {event.turn_id} <ChevronRight size={10} />
+                  {expanded && (
+                    <div style={{ padding: '0 24px 12px 140px' }}>
+                      <div style={{
+                        background: 'var(--surface-secondary)', borderRadius: 'var(--radius-sm)',
+                        padding: 16, fontSize: 12, lineHeight: 1.6, color: 'var(--muted-foreground)',
+                        whiteSpace: 'pre-wrap' as const, wordBreak: 'break-all',
+                      }}>
+                        {JSON.stringify(evt.payload, null, 2)}
+                      </div>
                     </div>
                   )}
                 </div>
-              </div>
-            ))
-          )}
-        </div>
-      </ScrollArea>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Live indicator */}
+      <div style={{
+        position: 'absolute', bottom: 16, right: 16,
+        display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px',
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 999,
+        fontSize: 11, zIndex: 10,
+      }}>
+        {paused ? (
+          <>
+            <Icon name="pause" size={10} style={{ color: 'var(--warning)' }} />
+            <span style={{ color: 'var(--warning)' }}>PAUSED</span>
+          </>
+        ) : (
+          <>
+            <span className="pulse-amber" style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 3, background: 'var(--primary)' }} />
+            <span style={{ color: isConnected ? 'var(--primary)' : 'var(--warning)' }}>{isConnected ? 'STREAMING' : 'DISCONNECTED'}</span>
+            <span style={{ color: 'var(--muted-foreground)' }}>· {events.length} events</span>
+          </>
+        )}
+      </div>
     </div>
   );
 };
+
+export default EventsPage;

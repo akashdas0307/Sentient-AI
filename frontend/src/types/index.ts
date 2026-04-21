@@ -91,4 +91,5 @@ export interface MonologueEntry {
   decision_count: number;
   duration_ms: number | null;
   timestamp: number;
+  stage?: string;
 }
