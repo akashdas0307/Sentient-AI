@@ -57,3 +57,8 @@ frontend/dist/
 modules-page*.png
 playwright-report/
 test-results/
+
+# Node.js / Frontend
+node_modules/
+dist/
+*.local
