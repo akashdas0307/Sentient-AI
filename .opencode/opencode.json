@@ -1,0 +1,31 @@
+{
+  "default_agent": "sisyphus",
+  "share": "manual",
+  "snapshot": true,
+  "autoupdate": "notify",
+  "model": "ollama/glm-5.1:cloud",
+  "small_model": "ollama/minimax-m2.7:cloud",
+  "instructions": [
+    "AGENTS.md",
+    "docs/phases/phase-infra-1/UNIFIED_STATE_TREE.md"
+  ],
+  "permission": {
+    "edit": "ask",
+    "bash": "ask",
+    "write": "ask"
+  },
+  "mcp": {
+    "websearch": {
+      "command": "bunx",
+      "args": ["-y", "@anthropic-ai/mcp-web-search"]
+    },
+    "context7": {
+      "command": "bunx",
+      "args": ["-y", "@anthropic-ai/mcp-context7"]
+    },
+    "grep_app": {
+      "command": "bunx",
+      "args": ["-y", "@anthropic-ai/mcp-grep-app"]
+    }
+  }
+}
